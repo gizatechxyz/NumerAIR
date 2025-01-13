@@ -1,0 +1,10 @@
+[package]
+name = "numerair"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+stwo-prover = { git = "https://github.com/starkware-libs/stwo.git", rev = "36b17ac" }
+
+[dev-dependencies]
+rand = "0.8.5"
