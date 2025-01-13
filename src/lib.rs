@@ -9,35 +9,32 @@ pub mod eval;
 pub struct FixedM31(pub M31);
 
 pub const DEFAULT_SCALE: u32 = 12;
-// Pre-compute scale factor as M31 field element
 pub const SCALE_FACTOR: M31 = M31::from_u32_unchecked(1 << DEFAULT_SCALE);
+pub const SCALE_FACTOR_U32: u32 = 1 << DEFAULT_SCALE;
+pub const HALF_P: u32 = P / 2;
 
 impl FixedM31 {
     pub fn new(x: f64) -> Self {
-        // Scale and round the float value
         let scaled = (x * (1u64 << DEFAULT_SCALE) as f64).round() as i64;
-
-        if scaled >= 0 {
-            // For positive numbers, directly convert to field element
-            FixedM31(M31::from(scaled as u32))
+        let val = if scaled >= 0 {
+            (scaled as u64 & (P as u64 - 1)) as u32
         } else {
-            // For negative numbers, add P to make it a valid M31 value
-            FixedM31(M31::from((P as i64 + scaled) as u32))
-        }
+            P - ((-scaled as u64 & (P as u64 - 1)) as u32)
+        };
+        FixedM31(M31(val))
     }
 
     pub fn to_f64(&self) -> f64 {
-        // Convert back to float by dividing by scale factor
-        let val = if self.0 .0 > P / 2 {
+        let val = if self.0 .0 > HALF_P {
             -((P - self.0 .0) as f64)
         } else {
             self.0 .0 as f64
         };
-        val / (1u64 << DEFAULT_SCALE) as f64
+        val / SCALE_FACTOR_U32 as f64
     }
 
     pub fn abs(&self) -> Self {
-        if self.0 .0 > P / 2 {
+        if self.is_negative() {
             FixedM31(-self.0)
         } else {
             *self
@@ -45,36 +42,29 @@ impl FixedM31 {
     }
 
     pub fn is_negative(&self) -> bool {
-        self.0 .0 > P / 2
+        self.0 .0 > HALF_P
     }
 
     pub fn signed_div_rem(&self, div: M31) -> (FixedM31, FixedM31) {
         let value = self.0 .0;
         let divisor = div.0;
 
-        // Handle the case when value is positive (< P/2)
-        if value <= P / 2 {
-            let q = value / divisor;
-            let r = value % divisor;
-            return (FixedM31(M31(q)), FixedM31(M31(r)));
-        }
+        let is_negative = value > HALF_P;
+        let abs_value = if is_negative { P - value } else { value };
 
-        // Handle negative values (> P/2)
-        // Convert to positive representation first
-        let pos_value = P - value;
-
-        // Calculate positive quotient and remainder
-        let q = pos_value / divisor;
-        let r = pos_value % divisor;
+        // Use fast division
+        let q = abs_value / divisor;
+        let r = abs_value - q * divisor;
 
         if r == 0 {
-            // If remainder is 0, just negate the quotient
-            (FixedM31(M31(P - q)), FixedM31(M31(0)))
-        } else {
-            // If there's a remainder, adjust quotient and remainder
-            // q = -(q + 1)
-            // r = divisor - remainder
+            (
+                FixedM31(M31(if is_negative { P - q } else { q })),
+                FixedM31(M31(0)),
+            )
+        } else if is_negative {
             (FixedM31(M31(P - (q + 1))), FixedM31(M31(divisor - r)))
+        } else {
+            (FixedM31(M31(q)), FixedM31(M31(r)))
         }
     }
 }
@@ -83,7 +73,6 @@ impl Add for FixedM31 {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self {
-        // Field addition preserves the scale factor
         FixedM31(self.0 + rhs.0)
     }
 }
@@ -92,7 +81,6 @@ impl Sub for FixedM31 {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self {
-        // Field subtraction preserves the scale factor
         FixedM31(self.0 - rhs.0)
     }
 }
@@ -102,9 +90,7 @@ impl Mul for FixedM31 {
 
     fn mul(self, rhs: Self) -> Self {
         let prod = self.0 * rhs.0;
-
         let (res, _) = FixedM31(prod).signed_div_rem(SCALE_FACTOR);
-
         res
     }
 }
