@@ -380,6 +380,7 @@ dependencies = [
 name = "numerair"
 version = "0.1.0"
 dependencies = [
+ "num-traits",
  "rand",
  "stwo-prover",
 ]

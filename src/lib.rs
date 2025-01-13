@@ -1,6 +1,8 @@
 use std::ops::{Add, Mul, Sub};
 use stwo_prover::core::fields::m31::{M31, P};
 
+pub mod eval;
+
 /// Fixed point number implementation over M31 field
 /// The value is stored as 2^scale * x
 #[derive(Copy, Clone, Debug, PartialEq)]
