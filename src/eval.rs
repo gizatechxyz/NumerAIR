@@ -1,17 +1,17 @@
 use num_traits::One;
 use stwo_prover::constraint_framework::EvalAtRow;
 
-/// Evaluates the constraint for addition of fixed point numbers.
+/// Evaluates addition constraints for fixed point numbers.
 pub fn eval_add<E: EvalAtRow>(eval: &mut E, lhs: E::F, rhs: E::F, out: E::F) {
     eval.add_constraint(out - (lhs + rhs));
 }
 
-/// Evaluates the constraint for subtraction of fixed point numbers.
+/// Evaluates subtraction constraints for fixed point numbers.
 pub fn eval_sub<E: EvalAtRow>(eval: &mut E, lhs: E::F, rhs: E::F, out: E::F) {
     eval.add_constraint(out - (lhs - rhs));
 }
 
-/// Evaluates the constraints for fixed point multiplication
+/// Evaluates constraints for fixed-point multiplication
 pub fn eval_mul<E: EvalAtRow>(
     eval: &mut E,
     lhs: E::F,
@@ -28,8 +28,13 @@ pub fn eval_mul<E: EvalAtRow>(
     eval_signed_div_rem(eval, prod, scale, out, rem);
 }
 
-/// Evaluates the constraints for the signed division and remainder.
-pub fn eval_signed_div_rem<E: EvalAtRow>(eval: &mut E, value: E::F, div: E::F, q: E::F, r: E::F) {
+/// Evaluates constraints for signed division with remainder
+/// Constrains: value = q * div + r where
+/// - q is the quotient
+/// - r is the remainder
+/// - 0 <= r < |div|
+/// - q is rounded toward negative infinity
+fn eval_signed_div_rem<E: EvalAtRow>(eval: &mut E, value: E::F, div: E::F, q: E::F, r: E::F) {
     // Core relationship: value = q * div + r
     eval.add_constraint(value - (q * div.clone() + r.clone()));
 
@@ -37,7 +42,7 @@ pub fn eval_signed_div_rem<E: EvalAtRow>(eval: &mut E, value: E::F, div: E::F, q
     let aux = eval.add_intermediate(div.clone() - E::F::one() - r.clone());
 
     // Constraint that the remainder is less than the divisor
-    // r + s = div - 1
+    // r + aux = div - 1
     eval.add_constraint(r + aux - (div - E::F::one()));
 }
 
@@ -236,14 +241,14 @@ mod tests {
 
         // Test regular multiplication cases
         for _ in 0..100 {
-            let a = (rng.gen::<f64>() - 0.5) * 10.0; // Random between -5 and 5
+            let a = (rng.gen::<f64>() - 0.5) * 10.0;
             let b = (rng.gen::<f64>() - 0.5) * 10.0;
 
             let fixed_a = FixedM31::new(a);
             let fixed_b = FixedM31::new(b);
             let expected = fixed_a * fixed_b;
 
-            // Calculate remainder and slack
+            // Calculate remainder
             let prod = fixed_a.0 * fixed_b.0;
             let (_, rem) = FixedM31(prod).signed_div_rem(SCALE_FACTOR);
 
@@ -268,7 +273,7 @@ mod tests {
             let fixed_b = FixedM31::new(b);
             let expected = fixed_a * fixed_b;
 
-            // Calculate remainder and slack
+            // Calculate remainder
             let prod = fixed_a.0 * fixed_b.0;
             let (_, rem) = FixedM31(prod).signed_div_rem(SCALE_FACTOR);
 
@@ -285,7 +290,6 @@ mod tests {
 
         for div in divisors {
             for _ in 0..10 {
-                // Generate random value between -1000 and 1000
                 let val = (rng.gen::<f64>() - 0.5) * 2000.0;
                 let fixed_val = FixedM31::new(val);
 
