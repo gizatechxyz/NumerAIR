@@ -14,37 +14,31 @@ pub fn eval_sub<E: EvalAtRow>(eval: &mut E, lhs: E::F, rhs: E::F, out: E::F) {
 /// Evaluates the constraints for fixed point multiplication
 pub fn eval_mul<E: EvalAtRow>(
     eval: &mut E,
-    lhs: E::F,   // First fixed point number
-    rhs: E::F,   // Second fixed point number
-    scale: E::F, // The scale factor (2^DEFAULT_SCALE)
-    out: E::F,   // The output fixed point number
-    rem: E::F,   // The remainder
-    slack: E::F, // The slack variable
+    lhs: E::F,
+    rhs: E::F,
+    scale: E::F,
+    out: E::F,
+    rem: E::F,
 ) {
-    // First compute the raw product
     let prod = eval.add_intermediate(lhs * rhs);
 
-    // Then constrain the division by scale factor using signed_div_rem
+    // Constrain the division by scale factor
     // out = prod / scale (quotient)
     // rem = prod % scale (remainder)
-    eval_signed_div_rem(eval, prod, scale, out, rem, slack);
+    eval_signed_div_rem(eval, prod, scale, out, rem);
 }
 
 /// Evaluates the constraints for the signed division and remainder.
-pub fn eval_signed_div_rem<E: EvalAtRow>(
-    eval: &mut E,
-    value: E::F, // The value being divided
-    div: E::F,   // The divisor
-    q: E::F,     // The quotient output
-    r: E::F,     // The remainder output
-    s: E::F,     // The slack variable
-) {
+pub fn eval_signed_div_rem<E: EvalAtRow>(eval: &mut E, value: E::F, div: E::F, q: E::F, r: E::F) {
     // Core relationship: value = q * div + r
     eval.add_constraint(value - (q * div.clone() + r.clone()));
 
+    // Compute an auxiliary variable to constrain the inequality r < div
+    let aux = eval.add_intermediate(div.clone() - E::F::one() - r.clone());
+
     // Constraint that the remainder is less than the divisor
     // r + s = div - 1
-    eval.add_constraint(r + s - (div - E::F::one()));
+    eval.add_constraint(r + aux - (div - E::F::one()));
 }
 
 #[cfg(test)]
@@ -114,18 +108,15 @@ mod tests {
                     let rhs = eval.next_trace_mask();
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
-                    let slack = eval.next_trace_mask();
-                    eval_mul(&mut eval, lhs, rhs, SCALE_FACTOR.into(), out, rem, slack)
+                    eval_mul(&mut eval, lhs, rhs, SCALE_FACTOR.into(), out, rem)
                 }
                 Op::SignedDivRem => {
                     let value = eval.next_trace_mask();
                     let div = eval.next_trace_mask();
                     let q = eval.next_trace_mask();
                     let r = eval.next_trace_mask();
-                    let s = eval.next_trace_mask();
-                    eval_signed_div_rem(&mut eval, value, div, q, r, s)
+                    eval_signed_div_rem(&mut eval, value, div, q, r)
                 }
-                _ => unimplemented!(),
             }
             eval
         }
@@ -219,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn test_random_add() {
+    fn test_add() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
             let a = FixedM31::new((rng.gen::<f64>() - 0.5) * 200.0);
@@ -230,64 +221,12 @@ mod tests {
     }
 
     #[test]
-    fn test_random_sub() {
+    fn test_sub() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
             let a = FixedM31::new((rng.gen::<f64>() - 0.5) * 200.0);
             let b = FixedM31::new((rng.gen::<f64>() - 0.5) * 200.0);
             test_op(Op::Sub, vec![a, b], vec![a - b]);
-        }
-    }
-
-    #[test]
-    fn test_signed_div_rem() {
-        let mut rng = StdRng::seed_from_u64(42);
-
-        // Test different divisors
-        let divisors = vec![M31(7), M31(13), M31(23)];
-
-        for div in divisors {
-            for _ in 0..10 {
-                // Generate random value between -1000 and 1000
-                let val = (rng.gen::<f64>() - 0.5) * 2000.0;
-                let fixed_val = FixedM31::new(val);
-
-                // Compute expected results using the actual implementation
-                let (expected_q, expected_r) = fixed_val.signed_div_rem(div);
-                // Calculate slack: r + s = div - 1
-                let expected_s = FixedM31(div - M31::one() - expected_r.0);
-
-                // Test the constraint system
-                test_op(
-                    Op::SignedDivRem,
-                    vec![fixed_val, FixedM31(div)],
-                    vec![expected_q, expected_r, expected_s],
-                );
-            }
-        }
-
-        // Test special cases
-        let test_cases = vec![
-            // (value, divisor)
-            (100, 7),  // Positive number normal case
-            (-100, 7), // Negative number normal case
-            (21, 7),   // Zero remainder case
-            (-21, 7),  // Negative with zero remainder
-            (1, 1),    // Edge case with divisor 1
-            (-1, 1),   // Edge case with divisor 1 negative
-        ];
-
-        for (value, divisor) in test_cases {
-            let fixed_val = FixedM31::new(value as f64);
-            let div = M31(divisor);
-            let (expected_q, expected_r) = fixed_val.signed_div_rem(div);
-            let expected_s = FixedM31(div - M31::one() - expected_r.0);
-
-            test_op(
-                Op::SignedDivRem,
-                vec![fixed_val, FixedM31(div)],
-                vec![expected_q, expected_r, expected_s],
-            );
         }
     }
 
@@ -307,9 +246,8 @@ mod tests {
             // Calculate remainder and slack
             let prod = fixed_a.0 * fixed_b.0;
             let (_, rem) = FixedM31(prod).signed_div_rem(SCALE_FACTOR);
-            let slack = FixedM31(SCALE_FACTOR - M31::one() - rem.0);
 
-            test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem, slack]);
+            test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
         }
 
         // Test special cases
@@ -333,9 +271,57 @@ mod tests {
             // Calculate remainder and slack
             let prod = fixed_a.0 * fixed_b.0;
             let (_, rem) = FixedM31(prod).signed_div_rem(SCALE_FACTOR);
-            let slack = FixedM31(SCALE_FACTOR - M31::one() - rem.0);
 
-            test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem, slack]);
+            test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
+        }
+    }
+
+    #[test]
+    fn test_signed_div_rem() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        // Test different divisors
+        let divisors = vec![M31(7), M31(13), M31(23)];
+
+        for div in divisors {
+            for _ in 0..10 {
+                // Generate random value between -1000 and 1000
+                let val = (rng.gen::<f64>() - 0.5) * 2000.0;
+                let fixed_val = FixedM31::new(val);
+
+                // Compute expected results using the actual implementation
+                let (expected_q, expected_r) = fixed_val.signed_div_rem(div);
+
+                // Test the constraint system
+                test_op(
+                    Op::SignedDivRem,
+                    vec![fixed_val, FixedM31(div)],
+                    vec![expected_q, expected_r],
+                );
+            }
+        }
+
+        // Test special cases
+        let test_cases = vec![
+            // (value, divisor)
+            (100, 7),  // Positive number normal case
+            (-100, 7), // Negative number normal case
+            (21, 7),   // Zero remainder case
+            (-21, 7),  // Negative with zero remainder
+            (1, 1),    // Edge case with divisor 1
+            (-1, 1),   // Edge case with divisor 1 negative
+        ];
+
+        for (value, divisor) in test_cases {
+            let fixed_val = FixedM31::new(value as f64);
+            let div = M31(divisor);
+            let (expected_q, expected_r) = fixed_val.signed_div_rem(div);
+
+            test_op(
+                Op::SignedDivRem,
+                vec![fixed_val, FixedM31(div)],
+                vec![expected_q, expected_r],
+            );
         }
     }
 }
