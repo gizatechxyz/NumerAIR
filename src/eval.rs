@@ -56,7 +56,7 @@ mod tests {
         core::{
             backend::{Col, Column, CpuBackend},
             fields::{
-                m31::{M31, P},
+                m31::{BaseField, P},
                 qm31::SecureField,
             },
             pcs::TreeVec,
@@ -67,8 +67,7 @@ mod tests {
         },
     };
 
-
-    use crate::{backend::cpu::FixedM31, SCALE_FACTOR};
+    use crate::{base::BaseFixedPoint, SCALE_FACTOR};
 
     use super::*;
 
@@ -83,7 +82,6 @@ mod tests {
         Add,
         Sub,
         Mul,
-        SignedDivRem,
     }
 
     impl FrameworkEval for TestEval {
@@ -116,25 +114,18 @@ mod tests {
                     let rem = eval.next_trace_mask();
                     eval_mul(&mut eval, lhs, rhs, SCALE_FACTOR.into(), out, rem)
                 }
-                Op::SignedDivRem => {
-                    let value = eval.next_trace_mask();
-                    let div = eval.next_trace_mask();
-                    let q = eval.next_trace_mask();
-                    let r = eval.next_trace_mask();
-                    eval_signed_div_rem(&mut eval, value, div, q, r)
-                }
             }
             eval
         }
     }
 
     fn columns_to_evaluations(
-        cols: Vec<Vec<M31>>,
+        cols: Vec<Vec<BaseField>>,
         domain: CanonicCoset,
-    ) -> Vec<CircleEvaluation<CpuBackend, M31, BitReversedOrder>> {
+    ) -> Vec<CircleEvaluation<CpuBackend, BaseField, BitReversedOrder>> {
         cols.into_iter()
             .map(|col| {
-                let mut trace_col = Col::<CpuBackend, M31>::zeros(1 << domain.log_size());
+                let mut trace_col = Col::<CpuBackend, BaseField>::zeros(1 << domain.log_size());
                 for (i, val) in col.iter().enumerate() {
                     trace_col.set(i, *val);
                 }
@@ -143,22 +134,18 @@ mod tests {
             .collect()
     }
 
-    fn test_op(op: Op, inputs: Vec<FixedM31>, expected_outputs: Vec<FixedM31>) {
+    fn test_op(op: Op, inputs: Vec<BaseField>, expected_outputs: Vec<BaseField>) {
         const LOG_SIZE: u32 = 4;
         let domain = CanonicCoset::new(LOG_SIZE);
         let size = 1 << LOG_SIZE;
 
-        // Convert inputs and outputs to M31
-        let inputs: Vec<M31> = inputs.iter().map(|x| x.0).collect();
-        let outputs: Vec<M31> = expected_outputs.iter().map(|x| x.0).collect();
-
         // Generate trace
-        let mut trace_cols = vec![Vec::new(); inputs.len() + outputs.len()];
+        let mut trace_cols = vec![Vec::new(); inputs.len() + expected_outputs.len()];
         for _ in 0..size {
             for (i, input) in inputs.iter().enumerate() {
                 trace_cols[i].push(*input);
             }
-            for (i, output) in outputs.iter().enumerate() {
+            for (i, output) in expected_outputs.iter().enumerate() {
                 trace_cols[inputs.len() + i].push(*output);
             }
         }
@@ -219,10 +206,10 @@ mod tests {
     fn test_add() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
-            let a = FixedM31::new((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = FixedM31::new((rng.gen::<f64>() - 0.5) * 200.0);
+            let a = BaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = BaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
 
-            test_op(Op::Add, vec![a, b], vec![a + b]);
+            test_op(Op::Add, vec![a, b], vec![a.fixed_add(b)]);
         }
     }
 
@@ -230,9 +217,9 @@ mod tests {
     fn test_sub() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
-            let a = FixedM31::new((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = FixedM31::new((rng.gen::<f64>() - 0.5) * 200.0);
-            test_op(Op::Sub, vec![a, b], vec![a - b]);
+            let a = BaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = BaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            test_op(Op::Sub, vec![a, b], vec![a.fixed_sub(b)]);
         }
     }
 
@@ -245,13 +232,9 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 10.0;
             let b = (rng.gen::<f64>() - 0.5) * 10.0;
 
-            let fixed_a = FixedM31::new(a);
-            let fixed_b = FixedM31::new(b);
-            let expected = fixed_a * fixed_b;
-
-            // Calculate remainder
-            let prod = fixed_a.0 * fixed_b.0;
-            let (_, rem) = FixedM31(prod).signed_div_rem(SCALE_FACTOR);
+            let fixed_a = BaseField::from_f64(a);
+            let fixed_b = BaseField::from_f64(b);
+            let (expected, rem) = fixed_a.fixed_mul_rem(fixed_b);
 
             test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
         }
@@ -270,63 +253,11 @@ mod tests {
         ];
 
         for (a, b) in special_cases {
-            let fixed_a = FixedM31::new(a);
-            let fixed_b = FixedM31::new(b);
-            let expected = fixed_a * fixed_b;
-
-            // Calculate remainder
-            let prod = fixed_a.0 * fixed_b.0;
-            let (_, rem) = FixedM31(prod).signed_div_rem(SCALE_FACTOR);
+            let fixed_a = BaseField::from_f64(a);
+            let fixed_b = BaseField::from_f64(b);
+            let (expected, rem) = fixed_a.fixed_mul_rem(fixed_b);
 
             test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
-        }
-    }
-
-    #[test]
-    fn test_signed_div_rem() {
-        let mut rng = StdRng::seed_from_u64(42);
-
-        // Test different divisors
-        let divisors = vec![M31(7), M31(13), M31(23)];
-
-        for div in divisors {
-            for _ in 0..10 {
-                let val = (rng.gen::<f64>() - 0.5) * 2000.0;
-                let fixed_val = FixedM31::new(val);
-
-                // Compute expected results using the actual implementation
-                let (expected_q, expected_r) = fixed_val.signed_div_rem(div);
-
-                // Test the constraint system
-                test_op(
-                    Op::SignedDivRem,
-                    vec![fixed_val, FixedM31(div)],
-                    vec![expected_q, expected_r],
-                );
-            }
-        }
-
-        // Test special cases
-        let test_cases = vec![
-            // (value, divisor)
-            (100, 7),  // Positive number normal case
-            (-100, 7), // Negative number normal case
-            (21, 7),   // Zero remainder case
-            (-21, 7),  // Negative with zero remainder
-            (1, 1),    // Edge case with divisor 1
-            (-1, 1),   // Edge case with divisor 1 negative
-        ];
-
-        for (value, divisor) in test_cases {
-            let fixed_val = FixedM31::new(value as f64);
-            let div = M31(divisor);
-            let (expected_q, expected_r) = fixed_val.signed_div_rem(div);
-
-            test_op(
-                Op::SignedDivRem,
-                vec![fixed_val, FixedM31(div)],
-                vec![expected_q, expected_r],
-            );
         }
     }
 }

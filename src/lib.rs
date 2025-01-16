@@ -1,7 +1,7 @@
 use stwo_prover::core::fields::m31::{M31, P};
 
-pub mod backend;
 pub mod eval;
+pub mod base;
 
 // Number of bits used for decimal precision.
 pub const DEFAULT_SCALE: u32 = 12;
