@@ -2,7 +2,7 @@ use stwo_prover::core::fields::m31::{BaseField, M31, P};
 
 use crate::{DEFAULT_SCALE, HALF_P, SCALE_FACTOR, SCALE_FACTOR_U32};
 
-/// Trait to add fixed-point arithmetic capabilities to BaseField
+/// Trait for BaseField to fixed-point arithmetic
 pub trait BaseFixedPoint {
     /// Creates a new fixed-point number from a float value.
     fn from_f64(x: f64) -> Self;
