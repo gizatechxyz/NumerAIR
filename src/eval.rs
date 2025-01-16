@@ -67,7 +67,7 @@ mod tests {
         },
     };
 
-    use crate::{FixedM31, SCALE_FACTOR};
+    use crate::backend::cpu::{FixedM31, SCALE_FACTOR};
 
     use super::*;
 
