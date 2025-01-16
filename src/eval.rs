@@ -2,17 +2,17 @@ use num_traits::One;
 use stwo_prover::constraint_framework::EvalAtRow;
 
 /// Evaluates addition constraints for fixed point numbers.
-pub fn eval_add<E: EvalAtRow>(eval: &mut E, lhs: E::F, rhs: E::F, out: E::F) {
+pub fn eval_fixed_add<E: EvalAtRow>(eval: &mut E, lhs: E::F, rhs: E::F, out: E::F) {
     eval.add_constraint(out - (lhs + rhs));
 }
 
 /// Evaluates subtraction constraints for fixed point numbers.
-pub fn eval_sub<E: EvalAtRow>(eval: &mut E, lhs: E::F, rhs: E::F, out: E::F) {
+pub fn eval_fixed_sub<E: EvalAtRow>(eval: &mut E, lhs: E::F, rhs: E::F, out: E::F) {
     eval.add_constraint(out - (lhs - rhs));
 }
 
 /// Evaluates constraints for fixed-point multiplication
-pub fn eval_mul<E: EvalAtRow>(
+pub fn eval_fixed_mul<E: EvalAtRow>(
     eval: &mut E,
     lhs: E::F,
     rhs: E::F,
@@ -25,7 +25,7 @@ pub fn eval_mul<E: EvalAtRow>(
     // Constrain the division by scale factor
     // out = prod / scale (quotient)
     // rem = prod % scale (remainder)
-    eval_signed_div_rem(eval, prod, scale, out, rem);
+    eval_fixed_div_rem(eval, prod, scale, out, rem);
 }
 
 /// Evaluates constraints for signed division with remainder
@@ -34,7 +34,7 @@ pub fn eval_mul<E: EvalAtRow>(
 /// - r is the remainder
 /// - 0 <= r < |div|
 /// - q is rounded toward negative infinity
-fn eval_signed_div_rem<E: EvalAtRow>(eval: &mut E, value: E::F, div: E::F, q: E::F, r: E::F) {
+fn eval_fixed_div_rem<E: EvalAtRow>(eval: &mut E, value: E::F, div: E::F, q: E::F, r: E::F) {
     // Core relationship: value = q * div + r
     eval.add_constraint(value - (q * div.clone() + r.clone()));
 
@@ -99,20 +99,20 @@ mod tests {
                     let lhs = eval.next_trace_mask();
                     let rhs = eval.next_trace_mask();
                     let out = eval.next_trace_mask();
-                    eval_add(&mut eval, lhs, rhs, out)
+                    eval_fixed_add(&mut eval, lhs, rhs, out)
                 }
                 Op::Sub => {
                     let lhs = eval.next_trace_mask();
                     let rhs = eval.next_trace_mask();
                     let out = eval.next_trace_mask();
-                    eval_sub(&mut eval, lhs, rhs, out)
+                    eval_fixed_sub(&mut eval, lhs, rhs, out)
                 }
                 Op::Mul => {
                     let lhs = eval.next_trace_mask();
                     let rhs = eval.next_trace_mask();
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
-                    eval_mul(&mut eval, lhs, rhs, SCALE_FACTOR.into(), out, rem)
+                    eval_fixed_mul(&mut eval, lhs, rhs, SCALE_FACTOR.into(), out, rem)
                 }
             }
             eval
