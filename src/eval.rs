@@ -73,7 +73,7 @@ mod tests {
         },
     };
 
-    use crate::{base::BaseFixedPoint, SCALE_FACTOR};
+    use crate::{base::FixedPoint, SCALE_FACTOR};
 
     use super::*;
 

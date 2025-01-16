@@ -1,7 +1,10 @@
+#![feature(portable_simd)]
+
 use stwo_prover::core::fields::m31::{M31, P};
 
-pub mod eval;
 pub mod base;
+pub mod eval;
+pub mod packed;
 
 // Number of bits used for decimal precision.
 pub const DEFAULT_SCALE: u32 = 12;

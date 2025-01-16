@@ -3,7 +3,7 @@ use stwo_prover::core::fields::m31::{BaseField, M31, P};
 use crate::{DEFAULT_SCALE, HALF_P, SCALE_FACTOR, SCALE_FACTOR_U32};
 
 /// Trait for BaseField to fixed-point arithmetic
-pub trait BaseFixedPoint {
+pub trait FixedPoint {
     /// Creates a new fixed-point number from a float value.
     fn from_f64(x: f64) -> Self;
 
@@ -45,7 +45,7 @@ pub trait BaseFixedPoint {
     ///
     /// # Panics
     /// Panics if rhs is zero
-    fn fixed_div(self, rhs: Self) -> Self;
+    fn fixed_div(&self, rhs: Self) -> Self;
 
     /// Multiply taking into account the fixed-point scale factor
     ///
@@ -66,7 +66,7 @@ pub trait BaseFixedPoint {
         Self: Sized;
 }
 
-impl BaseFixedPoint for BaseField {
+impl FixedPoint for BaseField {
     fn from_f64(x: f64) -> Self {
         let scaled = (x * (1u64 << DEFAULT_SCALE) as f64).round() as i64;
         let val = if scaled >= 0 {
@@ -84,14 +84,6 @@ impl BaseFixedPoint for BaseField {
             self.0 as f64
         };
         val / SCALE_FACTOR_U32 as f64
-    }
-
-    fn abs(&self) -> Self {
-        if self.is_negative() {
-            -*self
-        } else {
-            *self
-        }
     }
 
     fn is_negative(&self) -> bool {
@@ -136,11 +128,11 @@ impl BaseFixedPoint for BaseField {
         }
     }
 
-    fn fixed_div(self, rhs: Self) -> Self {
+    fn fixed_div(&self, rhs: Self) -> Self {
         assert!(rhs.0 != 0, "Division by zero");
 
         // Multiply numerator by scale factor to maintain precision.
-        let scaled = self * SCALE_FACTOR;
+        let scaled = *self * SCALE_FACTOR;
 
         // Extract absolute values and signs of operands
         let (abs_scaled, scaled_is_neg) = if scaled.0 > HALF_P {
@@ -164,6 +156,10 @@ impl BaseFixedPoint for BaseField {
         } else {
             abs_result // Positive result
         }
+    }
+    
+    fn abs(&self) -> Self {
+        todo!()
     }
 }
 
