@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 num-traits = "0.2.19"
+rayon = "1.10.0"
 stwo-prover = { git = "https://github.com/starkware-libs/stwo.git", rev = "36b17ac" }
 
 [dev-dependencies]
