@@ -62,7 +62,7 @@ mod tests {
         core::{
             backend::{
                 simd::{m31::PackedBaseField, SimdBackend},
-                Backend, Col, Column, CpuBackend,
+                Col, Column, CpuBackend,
             },
             fields::{
                 m31::{BaseField, P},
@@ -70,13 +70,13 @@ mod tests {
             },
             pcs::TreeVec,
             poly::{
-                circle::{CanonicCoset, CircleEvaluation, CirclePoly, PolyOps},
+                circle::{CanonicCoset, CircleEvaluation},
                 BitReversedOrder,
             },
         },
     };
 
-    use crate::{base::FixedPoint, SCALE_FACTOR};
+    use crate::{FixedPoint, SCALE_FACTOR};
 
     use super::*;
 

@@ -9,7 +9,7 @@ use stwo_prover::core::{
     fields::m31::BaseField,
 };
 
-use crate::{base::FixedPoint, HALF_P, SCALE_FACTOR};
+use crate::{FixedPoint, HALF_P, SCALE_FACTOR};
 
 /// Trait for implementing fixed-point arithmetic for packed base field elements
 impl FixedPoint for PackedBaseField {
