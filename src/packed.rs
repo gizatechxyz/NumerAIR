@@ -1,15 +1,25 @@
-use std::simd::{cmp::SimdPartialOrd, Simd};
+use std::simd::{
+    cmp::{SimdOrd, SimdPartialOrd},
+    num::{SimdInt, SimdUint},
+    Simd,
+};
 
 use num_traits::Zero;
+use once_cell::sync::Lazy;
 use stwo_prover::core::{
     backend::simd::{
         conversion::Unpack,
-        m31::{PackedBaseField, MODULUS},
+        m31::{PackedBaseField, MODULUS, N_LANES},
     },
-    fields::m31::BaseField,
+    fields::m31::{BaseField, P},
 };
 
-use crate::{FixedPoint, HALF_P, SCALE_FACTOR};
+use crate::{FixedPoint, HALF_P, SCALE_FACTOR, SCALE_FACTOR_U32};
+
+static P_SIMD: Lazy<Simd<i64, N_LANES>> = Lazy::new(|| Simd::splat(P as i64));
+static HALF_P_SIMD: Lazy<Simd<i64, N_LANES>> = Lazy::new(|| Simd::splat(HALF_P as i64));
+static SCALE_FACTOR_SIMD: Lazy<Simd<i64, N_LANES>> =
+    Lazy::new(|| Simd::splat(SCALE_FACTOR_U32 as i64));
 
 /// Trait for implementing fixed-point arithmetic for packed base field elements
 impl FixedPoint for PackedBaseField {
@@ -49,9 +59,32 @@ impl FixedPoint for PackedBaseField {
     where
         Self: Sized,
     {
-        let prod = *self * rhs;
+        // Cast to i64 for signed arithmetic
+        let self_simd: Simd<i64, N_LANES> = self.into_simd().cast();
+        let rhs_simd: Simd<i64, N_LANES> = rhs.into_simd().cast();
 
-        prod.fixed_div_rem(PackedBaseField::broadcast(SCALE_FACTOR))
+        // Convert to signed representation
+        let self_is_neg = self_simd.simd_gt(*HALF_P_SIMD);
+        let rhs_is_neg = rhs_simd.simd_gt(*HALF_P_SIMD);
+        let self_signed = self_is_neg.select(-(*P_SIMD - self_simd), self_simd);
+        let rhs_signed = rhs_is_neg.select(-(*P_SIMD - rhs_simd), rhs_simd);
+
+        // Compute product, quotient, and remainder
+        let prod = self_signed * rhs_signed;
+        let q = prod / *SCALE_FACTOR_SIMD;
+        let r = prod % *SCALE_FACTOR_SIMD;
+
+        // Map back to [0, p-1]
+        let q_field = (q % *P_SIMD + *P_SIMD) % *P_SIMD;
+        let r_field = (r % *P_SIMD + *P_SIMD) % *P_SIMD;
+
+        // Cast back to u32
+        unsafe {
+            (
+                PackedBaseField::from_simd_unchecked(q_field.cast::<u32>()),
+                PackedBaseField::from_simd_unchecked(r_field.cast::<u32>()),
+            )
+        }
     }
 
     fn fixed_div_rem(&self, div: Self) -> (Self, Self) {

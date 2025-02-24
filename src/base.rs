@@ -2,7 +2,6 @@ use stwo_prover::core::fields::m31::{BaseField, M31, P};
 
 use crate::{FixedPoint, DEFAULT_SCALE, HALF_P, SCALE_FACTOR, SCALE_FACTOR_U32};
 
-
 impl FixedPoint for BaseField {
     fn from_f64(x: f64) -> Self {
         let scaled = (x * (1u64 << DEFAULT_SCALE) as f64).round() as i64;
@@ -35,12 +34,26 @@ impl FixedPoint for BaseField {
         *self - rhs
     }
 
-    fn fixed_mul_rem(&self, rhs: Self) -> (Self, Self)
-    where
-        Self: Sized,
-    {
-        let prod = *self * rhs;
-        prod.fixed_div_rem(SCALE_FACTOR)
+    fn fixed_mul_rem(&self, rhs: Self) -> (Self, Self) {
+        const P_I64: i64 = P as i64;
+        // Convert to signed representation
+        let self_signed = if self.0 > HALF_P {
+            -(P_I64 - self.0 as i64)
+        } else {
+            self.0 as i64
+        };
+        let rhs_signed = if rhs.0 > HALF_P {
+            -(P_I64 - rhs.0 as i64)
+        } else {
+            rhs.0 as i64
+        };
+        let prod = self_signed * rhs_signed;
+        let q = prod / (SCALE_FACTOR_U32 as i64);
+        let r = prod % (SCALE_FACTOR_U32 as i64);
+        // Map back to [0, p-1]
+        let q_field = ((q % P_I64 + P_I64) % P_I64) as u64;
+        let r_field = ((r % P_I64 + P_I64) % P_I64) as u64;
+        (M31::reduce(q_field), M31::reduce(r_field))
     }
 
     fn fixed_div_rem(&self, div: Self) -> (Self, Self)
