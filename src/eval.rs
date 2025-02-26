@@ -73,14 +73,13 @@ mod tests {
         },
     };
 
-    use crate::{FixedPoint, SCALE_FACTOR};
+    use crate::{base::FixedBaseField, SCALE_FACTOR};
 
     use super::*;
 
     struct TestEval {
         log_size: u32,
         op: Op,
-        total_sum: SecureField,
     }
 
     #[derive(Clone, Copy)]
@@ -140,7 +139,7 @@ mod tests {
             .collect()
     }
 
-    fn test_op(op: Op, inputs: Vec<BaseField>, expected_outputs: Vec<BaseField>) {
+    fn test_op(op: Op, inputs: Vec<FixedBaseField>, expected_outputs: Vec<FixedBaseField>) {
         const LOG_SIZE: u32 = 4;
         let domain = CanonicCoset::new(LOG_SIZE);
         let size = 1 << LOG_SIZE;
@@ -149,10 +148,10 @@ mod tests {
         let mut trace_cols = vec![Vec::new(); inputs.len() + expected_outputs.len()];
         for _ in 0..size {
             for (i, input) in inputs.iter().enumerate() {
-                trace_cols[i].push(*input);
+                trace_cols[i].push(input.0);
             }
             for (i, output) in expected_outputs.iter().enumerate() {
-                trace_cols[inputs.len() + i].push(*output);
+                trace_cols[inputs.len() + i].push(output.0);
             }
         }
 
@@ -163,7 +162,6 @@ mod tests {
 
         let component = TestEval {
             log_size: LOG_SIZE,
-            total_sum: SecureField::zero(),
             op,
         };
 
@@ -212,10 +210,10 @@ mod tests {
     fn test_add() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
-            let a = BaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = BaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let a = FixedBaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = FixedBaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
 
-            test_op(Op::Add, vec![a, b], vec![a.fixed_add(b)]);
+            test_op(Op::Add, vec![a, b], vec![a + b]);
         }
     }
 
@@ -223,9 +221,9 @@ mod tests {
     fn test_sub() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
-            let a = BaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = BaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            test_op(Op::Sub, vec![a, b], vec![a.fixed_sub(b)]);
+            let a = FixedBaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = FixedBaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            test_op(Op::Sub, vec![a, b], vec![a - b]);
         }
     }
 
@@ -238,9 +236,9 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 10.0;
             let b = (rng.gen::<f64>() - 0.5) * 10.0;
 
-            let fixed_a = BaseField::from_f64(a);
-            let fixed_b = BaseField::from_f64(b);
-            let (expected, rem) = fixed_a.fixed_mul_rem(fixed_b);
+            let fixed_a = FixedBaseField::from_f64(a);
+            let fixed_b = FixedBaseField::from_f64(b);
+            let (expected, rem) = fixed_a * fixed_b;
 
             test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
         }
@@ -259,9 +257,9 @@ mod tests {
         ];
 
         for (a, b) in special_cases {
-            let fixed_a = BaseField::from_f64(a);
-            let fixed_b = BaseField::from_f64(b);
-            let (expected, rem) = fixed_a.fixed_mul_rem(fixed_b);
+            let fixed_a = FixedBaseField::from_f64(a);
+            let fixed_b = FixedBaseField::from_f64(b);
+            let (expected, rem) = fixed_a * fixed_b;
 
             test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
         }

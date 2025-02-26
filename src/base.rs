@@ -1,51 +1,141 @@
+use std::ops::{Add, Div, Mul, Sub};
+
+use bytemuck::{Pod, Zeroable};
+use serde::{Deserialize, Serialize};
 use stwo_prover::core::fields::m31::{BaseField, M31, P};
 
-use crate::{FixedPoint, DEFAULT_SCALE, HALF_P, SCALE_FACTOR, SCALE_FACTOR_U32};
+use crate::{DEFAULT_SCALE, HALF_P, SCALE_FACTOR, SCALE_FACTOR_U32};
 
-impl FixedPoint for BaseField {
-    fn from_f64(x: f64) -> Self {
+#[repr(transparent)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Pod,
+    Zeroable,
+    Serialize,
+    Deserialize,
+)]
+pub struct FixedBaseField(pub BaseField);
+
+impl FixedBaseField {
+    /// Creates a new fixed-point number from a float value.
+    pub fn from_f64(x: f64) -> Self {
         let scaled = (x * (1u64 << DEFAULT_SCALE) as f64).round() as i64;
         let val = if scaled >= 0 {
             (scaled as u64 & (P as u64 - 1)) as u32
         } else {
             P - ((-scaled as u64 & (P as u64 - 1)) as u32)
         };
-        M31(val)
+        FixedBaseField(M31(val))
     }
 
-    fn to_f64(&self) -> f64 {
-        let val = if self.0 > HALF_P {
-            -((P - self.0) as f64)
+    /// Converts the fixed-point number back to float.
+    pub fn to_f64(&self) -> f64 {
+        let val = if self.0 .0 > HALF_P {
+            -((P - self.0 .0) as f64)
         } else {
-            self.0 as f64
+            self.0 .0 as f64
         };
         val / SCALE_FACTOR_U32 as f64
     }
 
-    fn is_negative(&self) -> bool {
-        self.0 > HALF_P
+    /// Returns true if this represents a negative number
+    /// Numbers greater than HALF_P are interpreted as negative
+    pub fn is_negative(&self) -> bool {
+        self.0 .0 > HALF_P
     }
 
-    fn fixed_add(&self, rhs: Self) -> Self {
-        *self + rhs
-    }
+    /// Performs signed division with remainder
+    /// Returns (quotient, remainder) such that:
+    /// - self = quotient * div + remainder
+    /// - 0 <= remainder < |div|
+    /// - quotient is rounded toward negative infinity
+    pub fn fixed_div_rem(&self, div: Self) -> (Self, Self)
+    where
+        Self: Sized,
+    {
+        let value = self.0 .0;
+        let divisor = div.0 .0;
 
-    fn fixed_sub(&self, rhs: Self) -> Self {
-        *self - rhs
-    }
+        let is_negative = self.is_negative();
+        let abs_value = if is_negative { P - value } else { value };
 
-    fn fixed_mul_rem(&self, rhs: Self) -> (Self, Self) {
+        let q = abs_value / divisor;
+        let r = abs_value - q * divisor;
+
+        if r == 0 {
+            (
+                FixedBaseField(M31(if is_negative { P - q } else { q })),
+                FixedBaseField(M31(0)),
+            )
+        } else if is_negative {
+            (
+                FixedBaseField(M31(P - (q + 1))),
+                FixedBaseField(M31(divisor - r)),
+            )
+        } else {
+            (FixedBaseField(M31(q)), FixedBaseField(M31(r)))
+        }
+    }
+}
+
+impl Add for FixedBaseField {
+    type Output = Self;
+
+    /// Adds two fixed-point numbers
+    ///
+    /// The addition is performed directly in the underlying field since:
+    /// (a × 2^k) + (b × 2^k) = (a + b) × 2^k
+    /// where k is the scaling factor
+    fn add(self, rhs: Self) -> Self::Output {
+        FixedBaseField(self.0 + rhs.0)
+    }
+}
+
+impl Sub for FixedBaseField {
+    type Output = Self;
+
+    /// Subtracts two fixed-point numbers
+    ///
+    /// The subtraction is performed directly in the underlying field since:
+    /// (a × 2^k) - (b × 2^k) = (a - b) × 2^k
+    /// where k is the scaling factor
+    fn sub(self, rhs: Self) -> Self::Output {
+        FixedBaseField(self.0 - rhs.0)
+    }
+}
+
+impl Mul for FixedBaseField {
+    type Output = (Self, Self);
+
+    /// Multiply taking into account the fixed-point scale factor
+    ///
+    /// Since both inputs are scaled by 2^k, the product needs to be divided by 2^k:
+    /// (a × 2^k) × (b × 2^k) = (a × b) × 2^2k
+    /// result = ((a × b) × 2^2k) ÷ 2^k = (a × b) × 2^k
+    fn mul(self, rhs: Self) -> Self::Output {
         const P_I64: i64 = P as i64;
+
+        let is_self_negative = self.is_negative();
+        let is_rhs_negative = rhs.is_negative();
+
         // Convert to signed representation
-        let self_signed = if self.0 > HALF_P {
-            -(P_I64 - self.0 as i64)
+        let self_signed = if is_self_negative {
+            -(P_I64 - self.0 .0 as i64)
         } else {
-            self.0 as i64
+            self.0 .0 as i64
         };
-        let rhs_signed = if rhs.0 > HALF_P {
-            -(P_I64 - rhs.0 as i64)
+        let rhs_signed = if is_rhs_negative {
+            -(P_I64 - rhs.0 .0 as i64)
         } else {
-            rhs.0 as i64
+            rhs.0 .0 as i64
         };
         let prod = self_signed * rhs_signed;
         let q = prod / (SCALE_FACTOR_U32 as i64);
@@ -53,46 +143,45 @@ impl FixedPoint for BaseField {
         // Map back to [0, p-1]
         let q_field = ((q % P_I64 + P_I64) % P_I64) as u64;
         let r_field = ((r % P_I64 + P_I64) % P_I64) as u64;
-        (M31::reduce(q_field), M31::reduce(r_field))
+        (
+            FixedBaseField(M31::reduce(q_field)),
+            FixedBaseField(M31::reduce(r_field)),
+        )
     }
+}
 
-    fn fixed_div_rem(&self, div: Self) -> (Self, Self)
-    where
-        Self: Sized,
-    {
-        let value = self.0;
-        let divisor = div.0;
+impl Div for FixedBaseField {
+    type Output = Self;
 
-        let is_negative = value > HALF_P;
-        let abs_value = if is_negative { P - value } else { value };
-
-        let q = abs_value / divisor;
-        let r = abs_value - q * divisor;
-
-        if r == 0 {
-            (M31(if is_negative { P - q } else { q }), M31(0))
-        } else if is_negative {
-            (M31(P - (q + 1)), M31(divisor - r))
-        } else {
-            (M31(q), M31(r))
-        }
-    }
-
-    fn fixed_div(&self, rhs: Self) -> Self {
-        assert!(rhs.0 != 0, "Division by zero");
+    /// Divides two fixed-point numbers
+    ///
+    /// To maintain precision during division, the numerator is first multiplied by
+    /// an additional scaling factor:
+    /// (a × 2^k) ÷ (b × 2^k) = a ÷ b
+    /// result = (a × 2^k) ÷ b = (a ÷ b) × 2^k
+    ///
+    /// The division handles signed values by:
+    /// 1. Converting inputs to absolute values
+    /// 2. Performing unsigned division
+    /// 3. Applying the correct sign to the result based on input signs
+    ///
+    /// # Panics
+    /// Panics if rhs is zero
+    fn div(self, rhs: Self) -> Self::Output {
+        assert!(rhs.0 .0 != 0, "Division by zero");
 
         // Multiply numerator by scale factor to maintain precision.
-        let scaled = *self * SCALE_FACTOR;
+        let scaled = self.0 * SCALE_FACTOR;
 
         // Extract absolute values and signs of operands
         let (abs_scaled, scaled_is_neg) = if scaled.0 > HALF_P {
-            (M31(P - scaled.0), true)
+            (FixedBaseField(M31(P - scaled.0)), true)
         } else {
-            (scaled, false)
+            (FixedBaseField(scaled), false)
         };
 
-        let (abs_rhs, rhs_is_neg) = if rhs.0 > HALF_P {
-            (M31(P - rhs.0), true)
+        let (abs_rhs, rhs_is_neg) = if rhs.0 .0 > HALF_P {
+            (FixedBaseField(M31(P - rhs.0 .0)), true)
         } else {
             (rhs, false)
         };
@@ -102,14 +191,10 @@ impl FixedPoint for BaseField {
 
         // Apply sign based on input signs
         if scaled_is_neg ^ rhs_is_neg {
-            M31(P - abs_result.0) // Negative result
+            FixedBaseField(M31(P - abs_result.0 .0)) // Negative result
         } else {
             abs_result // Positive result
         }
-    }
-
-    fn abs(&self) -> Self {
-        todo!()
     }
 }
 
@@ -127,11 +212,11 @@ mod tests {
 
     #[test]
     fn test_negative() {
-        let a = BaseField::from_f64(-3.5);
-        let b = BaseField::from_f64(2.0);
+        let a = FixedBaseField::from_f64(-3.5);
+        let b = FixedBaseField::from_f64(2.0);
 
         assert_near(a.to_f64(), -3.5);
-        assert_near((a + b).to_f64(), -1.5);
+        assert_near((a.clone() + b.clone()).to_f64(), -1.5);
         assert_near((a - b).to_f64(), -5.5);
     }
 
@@ -143,10 +228,10 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 200.0;
             let b = (rng.gen::<f64>() - 0.5) * 200.0;
 
-            let fa = BaseField::from_f64(a);
-            let fb = BaseField::from_f64(b);
+            let fa = FixedBaseField::from_f64(a);
+            let fb = FixedBaseField::from_f64(b);
 
-            assert_near((fa.fixed_add(fb)).to_f64(), a + b);
+            assert_near((fa + fb).to_f64(), a + b);
         }
     }
 
@@ -158,10 +243,10 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 200.0;
             let b = (rng.gen::<f64>() - 0.5) * 200.0;
 
-            let fa = BaseField::from_f64(a);
-            let fb = BaseField::from_f64(b);
+            let fa = FixedBaseField::from_f64(a);
+            let fb = FixedBaseField::from_f64(b);
 
-            assert_near((fa.fixed_sub(fb)).to_f64(), a - b);
+            assert_near((fa - fb).to_f64(), a - b);
         }
     }
 
@@ -173,10 +258,10 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 10.0;
             let b = (rng.gen::<f64>() - 0.5) * 10.0;
 
-            let fa = BaseField::from_f64(a);
-            let fb = BaseField::from_f64(b);
+            let fa = FixedBaseField::from_f64(a);
+            let fb = FixedBaseField::from_f64(b);
 
-            let (q, _) = fa.fixed_mul_rem(fb);
+            let (q, _) = fa * fb;
             let expected = a * b;
 
             assert_near(q.to_f64(), expected);
@@ -191,10 +276,10 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 10.0;
             let b = (rng.gen::<f64>() - 0.5) * 10.0;
 
-            let fa = BaseField::from_f64(a);
-            let fb = BaseField::from_f64(b);
+            let fa = FixedBaseField::from_f64(a);
+            let fb = FixedBaseField::from_f64(b);
 
-            let result = (fa.fixed_div(fb)).to_f64();
+            let result = (fa / fb).to_f64();
             let expected = a / b;
 
             assert_near(result, expected);
@@ -215,9 +300,9 @@ mod tests {
         ];
 
         for (a, b, expected) in test_cases {
-            let fa = BaseField::from_f64(a);
-            let fb = BaseField::from_f64(b);
-            let result = (fa.fixed_div(fb)).to_f64();
+            let fa = FixedBaseField::from_f64(a);
+            let fb = FixedBaseField::from_f64(b);
+            let result = (fa / fb).to_f64();
             assert_near(result, expected);
         }
     }
