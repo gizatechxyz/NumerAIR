@@ -3,15 +3,24 @@ use std::ops::{Add, Mul, Sub};
 use std::simd::num::{SimdInt, SimdUint};
 use std::simd::Mask;
 use std::simd::{cmp::SimdPartialOrd, Simd};
+use std::sync::OnceLock;
 use stwo_prover::core::backend::simd::m31::{PackedBaseField, PackedM31, N_LANES};
 use stwo_prover::core::fields::m31::P;
 
 use crate::SCALE_FACTOR_U32;
 use crate::{base::FixedM31, HALF_P};
 
-static HALF_P_SIMD: Lazy<Simd<u32, N_LANES>> = Lazy::new(|| Simd::splat(HALF_P));
-static SCALE_FACTOR_SIMD: Lazy<Simd<i64, N_LANES>> =
-    Lazy::new(|| Simd::splat(SCALE_FACTOR_U32 as i64));
+static HALF_P_SIMD: OnceLock<Simd<u32, N_LANES>> = OnceLock::new();
+static SCALE_FACTOR_SIMD: OnceLock<Simd<i64, N_LANES>> = OnceLock::new();
+
+// Helper functions to get constants
+fn get_half_p_simd() -> Simd<u32, N_LANES> {
+    *HALF_P_SIMD.get_or_init(|| Simd::splat(HALF_P))
+}
+
+fn get_scale_factor_simd() -> Simd<i64, N_LANES> {
+    *SCALE_FACTOR_SIMD.get_or_init(|| Simd::splat(SCALE_FACTOR_U32 as i64))
+}
 
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
@@ -20,16 +29,19 @@ pub type FixedPackedBaseField = FixedPackedM31;
 
 impl FixedPackedM31 {
     /// Creates a new instance with all elements set to the given scaled value.
+    #[inline(always)]
     pub fn broadcast_scaled(FixedM31(value): FixedM31) -> Self {
         Self(PackedM31(Simd::splat(value.0)))
     }
 
     /// Creates a new instance with all elements set to the given unscaled value.
+    #[inline(always)]
     pub fn broadcast_from_f64(value: f64) -> Self {
-        FixedPackedM31::broadcast_scaled(FixedM31::from_f64(value))
+        Self::broadcast_scaled(FixedM31::from_f64(value))
     }
 
     /// Converts a fixed-size array of f64 values to a fixed-point SIMD representation.
+    #[inline]
     pub fn from_f64_array(values: [f64; N_LANES]) -> Self {
         Self(PackedM31(Simd::from_array(
             values.map(|v| FixedM31::from_f64(v).0 .0),
@@ -37,6 +49,7 @@ impl FixedPackedM31 {
     }
 
     /// Converts the fixed-point SIMD values to a fixed-size array of f64.
+    #[inline]
     pub fn to_f64_array(self) -> [f64; N_LANES] {
         self.0
             .to_array()
@@ -44,9 +57,9 @@ impl FixedPackedM31 {
     }
 
     /// Returns a SIMD mask indicating which elements are negative.
+    #[inline(always)]
     pub fn is_negative(self) -> Mask<i32, 16> {
-        let self_simd = self.0.into_simd();
-        self_simd.simd_gt(*HALF_P_SIMD)
+        self.0.into_simd().simd_gt(get_half_p_simd())
     }
 
     /// Performs signed division with remainder
@@ -70,8 +83,9 @@ impl Add for FixedPackedM31 {
     /// The addition is performed directly in the underlying field since:
     /// (a × 2^k) + (b × 2^k) = (a + b) × 2^k
     /// where k is the scaling factor
+    #[inline(always)]
     fn add(self, rhs: Self) -> Self::Output {
-        FixedPackedM31(self.0 + rhs.0)
+        Self(self.0 + rhs.0)
     }
 }
 
@@ -83,8 +97,9 @@ impl Sub for FixedPackedM31 {
     /// The subtraction is performed directly in the underlying field since:
     /// (a × 2^k) - (b × 2^k) = (a - b) × 2^k
     /// where k is the scaling factor
+    #[inline(always)]
     fn sub(self, rhs: Self) -> Self::Output {
-        FixedPackedM31(self.0 - rhs.0)
+        Self(self.0 - rhs.0)
     }
 }
 
@@ -112,8 +127,8 @@ impl Mul for FixedPackedM31 {
 
         // Compute product, quotient, and remainder
         let prod = self_signed * rhs_signed;
-        let q = prod / *SCALE_FACTOR_SIMD;
-        let r = prod % *SCALE_FACTOR_SIMD;
+        let q = prod / get_scale_factor_simd();
+        let r = prod % get_scale_factor_simd();
 
         // Map back to [0, p-1]
         let q_field = (q % *P_SIMD + *P_SIMD) % *P_SIMD;

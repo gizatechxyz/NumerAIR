@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
 use stwo_prover::core::fields::m31::{M31, P};
 
-use crate::{DEFAULT_SCALE, HALF_P, SCALE_FACTOR, SCALE_FACTOR_U32};
+use crate::{HALF_P, SCALE_FACTOR, SCALE_FACTOR_U32};
 
 #[repr(transparent)]
 #[derive(
@@ -26,33 +26,35 @@ pub struct FixedM31(pub M31);
 pub type FixedBaseField = FixedM31;
 
 impl FixedM31 {
+    #[inline(always)]
     pub const fn from_m31_scaled(x: M31) -> Self {
         Self(x)
     }
 
     /// Creates a new fixed-point number from a float value.
+    #[inline(always)]
     pub fn from_f64(x: f64) -> Self {
-        let scaled = (x * (1u64 << DEFAULT_SCALE) as f64).round() as i64;
+        let scaled = (x * SCALE_FACTOR_U32 as f64).round() as i64;
         let val = if scaled >= 0 {
-            (scaled as u64 & (P as u64 - 1)) as u32
+            (scaled as u32) & (P - 1)
         } else {
-            P - ((-scaled as u64 & (P as u64 - 1)) as u32)
+            P - (((-scaled) as u32) & (P - 1))
         };
-        FixedM31(M31(val))
+        Self(M31(val))
     }
 
     /// Converts the fixed-point number back to float.
+    #[inline(always)]
     pub fn to_f64(self) -> f64 {
-        let val = if self.0 .0 > HALF_P {
-            -((P - self.0 .0) as f64)
-        } else {
-            self.0 .0 as f64
-        };
-        val / SCALE_FACTOR_U32 as f64
+        let val = self.0 .0;
+        let sign = if val > HALF_P { -1.0 } else { 1.0 };
+        let abs_val = if val > HALF_P { P - val } else { val };
+        sign * (abs_val as f64) * (1.0 / SCALE_FACTOR_U32 as f64)
     }
 
     /// Returns true if this represents a negative number
     /// Numbers greater than HALF_P are interpreted as negative
+    #[inline(always)]
     pub fn is_negative(self) -> bool {
         self.0 .0 > HALF_P
     }
@@ -62,28 +64,23 @@ impl FixedM31 {
     /// - self = quotient * div + remainder
     /// - 0 <= remainder < |div|
     /// - quotient is rounded toward negative infinity
-    pub fn fixed_div_rem(self, div: Self) -> (Self, Self)
-    where
-        Self: Sized,
-    {
+    #[inline]
+    pub fn fixed_div_rem(self, div: Self) -> (Self, Self) {
         let value = self.0 .0;
         let divisor = div.0 .0;
+        assert_ne!(divisor, 0, "Division by zero");
 
-        let is_negative = self.is_negative();
-        let abs_value = if is_negative { P - value } else { value };
-
-        let q = abs_value / divisor;
-        let r = abs_value - q * divisor;
+        let is_neg = self.is_negative();
+        let abs_val = if is_neg { P - value } else { value };
+        let q = abs_val / divisor;
+        let r = abs_val - q * divisor;
 
         if r == 0 {
-            (
-                FixedM31(M31(if is_negative { P - q } else { q })),
-                FixedM31(M31(0)),
-            )
-        } else if is_negative {
-            (FixedM31(M31(P - (q + 1))), FixedM31(M31(divisor - r)))
+            (Self(M31(if is_neg { P - q } else { q })), Self(M31(0)))
+        } else if is_neg {
+            (Self(M31(P - (q + 1))), Self(M31(divisor - r)))
         } else {
-            (FixedM31(M31(q)), FixedM31(M31(r)))
+            (Self(M31(q)), Self(M31(r)))
         }
     }
 }
@@ -96,8 +93,9 @@ impl Add for FixedM31 {
     /// The addition is performed directly in the underlying field since:
     /// (a × 2^k) + (b × 2^k) = (a + b) × 2^k
     /// where k is the scaling factor
+    #[inline(always)]
     fn add(self, rhs: Self) -> Self::Output {
-        FixedM31(self.0 + rhs.0)
+        Self(self.0 + rhs.0)
     }
 }
 
@@ -109,8 +107,9 @@ impl Sub for FixedM31 {
     /// The subtraction is performed directly in the underlying field since:
     /// (a × 2^k) - (b × 2^k) = (a - b) × 2^k
     /// where k is the scaling factor
+    #[inline(always)]
     fn sub(self, rhs: Self) -> Self::Output {
-        FixedM31(self.0 - rhs.0)
+        Self(self.0 - rhs.0)
     }
 }
 
@@ -122,6 +121,7 @@ impl Mul for FixedM31 {
     /// Since both inputs are scaled by 2^k, the product needs to be divided by 2^k:
     /// (a × 2^k) × (b × 2^k) = (a × b) × 2^2k
     /// result = ((a × b) × 2^2k) ÷ 2^k = (a × b) × 2^k
+    #[inline]
     fn mul(self, rhs: Self) -> Self::Output {
         const P_I64: i64 = P as i64;
 
