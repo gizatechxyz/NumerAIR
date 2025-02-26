@@ -2,7 +2,7 @@ use std::ops::{Add, Div, Mul, Sub};
 
 use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
-use stwo_prover::core::fields::m31::{BaseField, M31, P};
+use stwo_prover::core::fields::m31::{M31, P};
 
 use crate::{DEFAULT_SCALE, HALF_P, SCALE_FACTOR, SCALE_FACTOR_U32};
 
@@ -22,11 +22,11 @@ use crate::{DEFAULT_SCALE, HALF_P, SCALE_FACTOR, SCALE_FACTOR_U32};
     Serialize,
     Deserialize,
 )]
-pub struct FixedM31(pub BaseField);
+pub struct FixedM31(pub M31);
 pub type FixedBaseField = FixedM31;
 
 impl FixedM31 {
-    pub const fn from_base_field(x: BaseField) -> Self {
+    pub const fn from_m31_scaled(x: M31) -> Self {
         Self(x)
     }
 
@@ -38,11 +38,11 @@ impl FixedM31 {
         } else {
             P - ((-scaled as u64 & (P as u64 - 1)) as u32)
         };
-        FixedBaseField::from_base_field(BaseField::from_u32_unchecked(val))
+        FixedM31(M31(val))
     }
 
     /// Converts the fixed-point number back to float.
-    pub fn to_f64(&self) -> f64 {
+    pub fn to_f64(self) -> f64 {
         let val = if self.0 .0 > HALF_P {
             -((P - self.0 .0) as f64)
         } else {
@@ -53,7 +53,7 @@ impl FixedM31 {
 
     /// Returns true if this represents a negative number
     /// Numbers greater than HALF_P are interpreted as negative
-    pub fn is_negative(&self) -> bool {
+    pub fn is_negative(self) -> bool {
         self.0 .0 > HALF_P
     }
 
@@ -62,7 +62,7 @@ impl FixedM31 {
     /// - self = quotient * div + remainder
     /// - 0 <= remainder < |div|
     /// - quotient is rounded toward negative infinity
-    pub fn fixed_div_rem(&self, div: Self) -> (Self, Self)
+    pub fn fixed_div_rem(self, div: Self) -> (Self, Self)
     where
         Self: Sized,
     {
@@ -77,24 +77,18 @@ impl FixedM31 {
 
         if r == 0 {
             (
-                FixedBaseField::from_base_field(M31(if is_negative { P - q } else { q })),
-                FixedBaseField::from_base_field(M31(0)),
+                FixedM31(M31(if is_negative { P - q } else { q })),
+                FixedM31(M31(0)),
             )
         } else if is_negative {
-            (
-                FixedBaseField::from_base_field(M31(P - (q + 1))),
-                FixedBaseField::from_base_field(M31(divisor - r)),
-            )
+            (FixedM31(M31(P - (q + 1))), FixedM31(M31(divisor - r)))
         } else {
-            (
-                FixedBaseField::from_base_field(M31(q)),
-                FixedBaseField::from_base_field(M31(r)),
-            )
+            (FixedM31(M31(q)), FixedM31(M31(r)))
         }
     }
 }
 
-impl Add for FixedBaseField {
+impl Add for FixedM31 {
     type Output = Self;
 
     /// Adds two fixed-point numbers
@@ -103,11 +97,11 @@ impl Add for FixedBaseField {
     /// (a × 2^k) + (b × 2^k) = (a + b) × 2^k
     /// where k is the scaling factor
     fn add(self, rhs: Self) -> Self::Output {
-        FixedBaseField::from_base_field(self.0 + rhs.0)
+        FixedM31(self.0 + rhs.0)
     }
 }
 
-impl Sub for FixedBaseField {
+impl Sub for FixedM31 {
     type Output = Self;
 
     /// Subtracts two fixed-point numbers
@@ -116,11 +110,11 @@ impl Sub for FixedBaseField {
     /// (a × 2^k) - (b × 2^k) = (a - b) × 2^k
     /// where k is the scaling factor
     fn sub(self, rhs: Self) -> Self::Output {
-        FixedBaseField::from_base_field(self.0 - rhs.0)
+        FixedM31(self.0 - rhs.0)
     }
 }
 
-impl Mul for FixedBaseField {
+impl Mul for FixedM31 {
     type Output = (Self, Self);
 
     /// Multiply taking into account the fixed-point scale factor
@@ -152,13 +146,13 @@ impl Mul for FixedBaseField {
         let q_field = ((q % P_I64 + P_I64) % P_I64) as u64;
         let r_field = ((r % P_I64 + P_I64) % P_I64) as u64;
         (
-            FixedBaseField::from_base_field(M31::reduce(q_field)),
-            FixedBaseField::from_base_field(M31::reduce(r_field)),
+            FixedM31(M31::reduce(q_field)),
+            FixedM31(M31::reduce(r_field)),
         )
     }
 }
 
-impl Div for FixedBaseField {
+impl Div for FixedM31 {
     type Output = Self;
 
     /// Divides two fixed-point numbers
@@ -183,13 +177,13 @@ impl Div for FixedBaseField {
 
         // Extract absolute values and signs of operands
         let (abs_scaled, scaled_is_neg) = if scaled.0 > HALF_P {
-            (FixedBaseField::from_base_field(M31(P - scaled.0)), true)
+            (FixedM31(M31(P - scaled.0)), true)
         } else {
-            (FixedBaseField::from_base_field(scaled), false)
+            (FixedM31(scaled), false)
         };
 
         let (abs_rhs, rhs_is_neg) = if rhs.0 .0 > HALF_P {
-            (FixedBaseField::from_base_field(M31(P - rhs.0 .0)), true)
+            (FixedM31(M31(P - rhs.0 .0)), true)
         } else {
             (rhs, false)
         };
@@ -199,7 +193,7 @@ impl Div for FixedBaseField {
 
         // Apply sign based on input signs
         if scaled_is_neg ^ rhs_is_neg {
-            FixedBaseField::from_base_field(M31(P - abs_result.0 .0)) // Negative result
+            FixedM31(M31(P - abs_result.0 .0)) // Negative result
         } else {
             abs_result // Positive result
         }
