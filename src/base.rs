@@ -22,9 +22,14 @@ use crate::{DEFAULT_SCALE, HALF_P, SCALE_FACTOR, SCALE_FACTOR_U32};
     Serialize,
     Deserialize,
 )]
-pub struct FixedBaseField(pub BaseField);
+pub struct FixedM31(pub BaseField);
+pub type FixedBaseField = FixedM31;
 
-impl FixedBaseField {
+impl FixedM31 {
+    pub const fn from_base_field(x: BaseField) -> Self {
+        Self(x)
+    }
+
     /// Creates a new fixed-point number from a float value.
     pub fn from_f64(x: f64) -> Self {
         let scaled = (x * (1u64 << DEFAULT_SCALE) as f64).round() as i64;
@@ -33,7 +38,7 @@ impl FixedBaseField {
         } else {
             P - ((-scaled as u64 & (P as u64 - 1)) as u32)
         };
-        FixedBaseField(M31(val))
+        FixedBaseField::from_base_field(BaseField::from_u32_unchecked(val))
     }
 
     /// Converts the fixed-point number back to float.
@@ -72,16 +77,19 @@ impl FixedBaseField {
 
         if r == 0 {
             (
-                FixedBaseField(M31(if is_negative { P - q } else { q })),
-                FixedBaseField(M31(0)),
+                FixedBaseField::from_base_field(M31(if is_negative { P - q } else { q })),
+                FixedBaseField::from_base_field(M31(0)),
             )
         } else if is_negative {
             (
-                FixedBaseField(M31(P - (q + 1))),
-                FixedBaseField(M31(divisor - r)),
+                FixedBaseField::from_base_field(M31(P - (q + 1))),
+                FixedBaseField::from_base_field(M31(divisor - r)),
             )
         } else {
-            (FixedBaseField(M31(q)), FixedBaseField(M31(r)))
+            (
+                FixedBaseField::from_base_field(M31(q)),
+                FixedBaseField::from_base_field(M31(r)),
+            )
         }
     }
 }
@@ -95,7 +103,7 @@ impl Add for FixedBaseField {
     /// (a × 2^k) + (b × 2^k) = (a + b) × 2^k
     /// where k is the scaling factor
     fn add(self, rhs: Self) -> Self::Output {
-        FixedBaseField(self.0 + rhs.0)
+        FixedBaseField::from_base_field(self.0 + rhs.0)
     }
 }
 
@@ -108,7 +116,7 @@ impl Sub for FixedBaseField {
     /// (a × 2^k) - (b × 2^k) = (a - b) × 2^k
     /// where k is the scaling factor
     fn sub(self, rhs: Self) -> Self::Output {
-        FixedBaseField(self.0 - rhs.0)
+        FixedBaseField::from_base_field(self.0 - rhs.0)
     }
 }
 
@@ -144,8 +152,8 @@ impl Mul for FixedBaseField {
         let q_field = ((q % P_I64 + P_I64) % P_I64) as u64;
         let r_field = ((r % P_I64 + P_I64) % P_I64) as u64;
         (
-            FixedBaseField(M31::reduce(q_field)),
-            FixedBaseField(M31::reduce(r_field)),
+            FixedBaseField::from_base_field(M31::reduce(q_field)),
+            FixedBaseField::from_base_field(M31::reduce(r_field)),
         )
     }
 }
@@ -175,13 +183,13 @@ impl Div for FixedBaseField {
 
         // Extract absolute values and signs of operands
         let (abs_scaled, scaled_is_neg) = if scaled.0 > HALF_P {
-            (FixedBaseField(M31(P - scaled.0)), true)
+            (FixedBaseField::from_base_field(M31(P - scaled.0)), true)
         } else {
-            (FixedBaseField(scaled), false)
+            (FixedBaseField::from_base_field(scaled), false)
         };
 
         let (abs_rhs, rhs_is_neg) = if rhs.0 .0 > HALF_P {
-            (FixedBaseField(M31(P - rhs.0 .0)), true)
+            (FixedBaseField::from_base_field(M31(P - rhs.0 .0)), true)
         } else {
             (rhs, false)
         };
@@ -191,7 +199,7 @@ impl Div for FixedBaseField {
 
         // Apply sign based on input signs
         if scaled_is_neg ^ rhs_is_neg {
-            FixedBaseField(M31(P - abs_result.0 .0)) // Negative result
+            FixedBaseField::from_base_field(M31(P - abs_result.0 .0)) // Negative result
         } else {
             abs_result // Positive result
         }
