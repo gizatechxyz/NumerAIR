@@ -10,14 +10,13 @@ The library implements fixed-point arithmetic using M31 field elements with conf
 ```rust
 
 // Create fixed-point numbers
-let lhs = BaseField::from_f64(3.14);
-let rhs = BaseField::from_f64(2.0);
+let lhs = FixedBaseField::from_f64(3.14);
+let rhs = FixedBaseField::from_f64(2.0);
 
 // Basic arithmetic operations
-let sum = lhs.fixed_add(rhs);
-let diff = lhs.fixed_sub(rhs);
-let (prod, rem) = lhs.fixed_mul_rem(rhs);
-let (quot, rem) = lhs.fixed_div_rem(rhs);
+let sum = lhs + rhs;
+let diff = lhs - rhs;
+let (prod, rem) = lhs * rhs;
 ```
 
 ### In Circuit Constraints

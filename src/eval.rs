@@ -60,10 +60,7 @@ mod tests {
     use stwo_prover::{
         constraint_framework::{self, preprocessed_columns::gen_is_first, FrameworkEval},
         core::{
-            backend::{
-                simd::{m31::PackedBaseField, SimdBackend},
-                Col, Column, CpuBackend,
-            },
+            backend::{simd::SimdBackend, Col, Column, CpuBackend},
             fields::{
                 m31::{BaseField, P},
                 qm31::SecureField,
@@ -76,14 +73,13 @@ mod tests {
         },
     };
 
-    use crate::{FixedPoint, SCALE_FACTOR};
+    use crate::{base::FixedBaseField, packed::FixedPackedBaseField, SCALE_FACTOR};
 
     use super::*;
 
     struct TestEval {
         log_size: u32,
         op: Op,
-        total_sum: SecureField,
     }
 
     #[derive(Clone, Copy)]
@@ -143,7 +139,7 @@ mod tests {
             .collect()
     }
 
-    fn test_op(op: Op, inputs: Vec<BaseField>, expected_outputs: Vec<BaseField>) {
+    fn test_op(op: Op, inputs: Vec<FixedBaseField>, expected_outputs: Vec<FixedBaseField>) {
         const LOG_SIZE: u32 = 4;
         let domain = CanonicCoset::new(LOG_SIZE);
         let size = 1 << LOG_SIZE;
@@ -152,10 +148,10 @@ mod tests {
         let mut trace_cols = vec![Vec::new(); inputs.len() + expected_outputs.len()];
         for _ in 0..size {
             for (i, input) in inputs.iter().enumerate() {
-                trace_cols[i].push(*input);
+                trace_cols[i].push(input.0);
             }
             for (i, output) in expected_outputs.iter().enumerate() {
-                trace_cols[inputs.len() + i].push(*output);
+                trace_cols[inputs.len() + i].push(output.0);
             }
         }
 
@@ -166,7 +162,6 @@ mod tests {
 
         let component = TestEval {
             log_size: LOG_SIZE,
-            total_sum: SecureField::zero(),
             op,
         };
 
@@ -211,11 +206,10 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // Helper function similar to test_op but for packed operations
     fn test_packed_op(
         op: Op,
-        inputs: Vec<PackedBaseField>,
-        expected_outputs: Vec<PackedBaseField>,
+        inputs: Vec<FixedPackedBaseField>,
+        expected_outputs: Vec<FixedPackedBaseField>,
     ) {
         const LOG_SIZE: u32 = 4;
         let domain = CanonicCoset::new(LOG_SIZE);
@@ -228,10 +222,10 @@ mod tests {
         // Fill trace with packed values
         for i in 0..size {
             for (col_idx, input) in inputs.iter().enumerate() {
-                trace_cols[col_idx].set(i, input.to_array()[0]);
+                trace_cols[col_idx].set(i, input.0.to_array()[0]);
             }
             for (col_idx, output) in expected_outputs.iter().enumerate() {
-                trace_cols[inputs.len() + col_idx].set(i, output.to_array()[0]);
+                trace_cols[inputs.len() + col_idx].set(i, output.0.to_array()[0]);
             }
         }
 
@@ -252,7 +246,6 @@ mod tests {
 
         let component = TestEval {
             log_size: LOG_SIZE,
-            total_sum: SecureField::zero(),
             op,
         };
 
@@ -271,10 +264,10 @@ mod tests {
             vec![Col::<SimdBackend, BaseField>::zeros(size); inputs.len() + expected_outputs.len()];
         for i in 0..size {
             for (col_idx, input) in inputs.iter().enumerate() {
-                invalid_trace_cols[col_idx].set(i, input.to_array()[0]);
+                invalid_trace_cols[col_idx].set(i, input.0.to_array()[0]);
             }
             for (col_idx, output) in expected_outputs.iter().enumerate() {
-                let invalid_val = (output.to_array()[0].0 + 1) % P;
+                let invalid_val = (output.0.to_array()[0].0 + 1) % P;
                 invalid_trace_cols[inputs.len() + col_idx]
                     .set(i, BaseField::from_u32_unchecked(invalid_val));
             }
@@ -317,10 +310,10 @@ mod tests {
     fn test_add() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
-            let a = BaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = BaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let a = FixedBaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = FixedBaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
 
-            test_op(Op::Add, vec![a, b], vec![a.fixed_add(b)]);
+            test_op(Op::Add, vec![a, b], vec![a + b]);
         }
     }
 
@@ -328,9 +321,9 @@ mod tests {
     fn test_sub() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
-            let a = BaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = BaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            test_op(Op::Sub, vec![a, b], vec![a.fixed_sub(b)]);
+            let a = FixedBaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = FixedBaseField::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            test_op(Op::Sub, vec![a, b], vec![a - b]);
         }
     }
 
@@ -343,9 +336,9 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 10.0;
             let b = (rng.gen::<f64>() - 0.5) * 10.0;
 
-            let fixed_a = BaseField::from_f64(a);
-            let fixed_b = BaseField::from_f64(b);
-            let (expected, rem) = fixed_a.fixed_mul_rem(fixed_b);
+            let fixed_a = FixedBaseField::from_f64(a);
+            let fixed_b = FixedBaseField::from_f64(b);
+            let (expected, rem) = fixed_a * fixed_b;
 
             test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
         }
@@ -364,9 +357,9 @@ mod tests {
         ];
 
         for (a, b) in special_cases {
-            let fixed_a = BaseField::from_f64(a);
-            let fixed_b = BaseField::from_f64(b);
-            let (expected, rem) = fixed_a.fixed_mul_rem(fixed_b);
+            let fixed_a = FixedBaseField::from_f64(a);
+            let fixed_b = FixedBaseField::from_f64(b);
+            let (expected, rem) = fixed_a * fixed_b;
 
             test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
         }
@@ -374,43 +367,30 @@ mod tests {
 
     #[test]
     fn test_packed_fixed_point_eval() {
-        use stwo_prover::core::backend::simd::m31::N_LANES;
-
         // Test ADD
         {
             // Create arrays of N_LANES elements for testing packed operations
-            let a_array = [BaseField::from_f64(2.5); N_LANES];
-            let b_array = [BaseField::from_f64(1.5); N_LANES];
-            let expected_array = [BaseField::from_f64(4.0); N_LANES]; // 2.5 + 1.5 = 4.0
-
-            let a = PackedBaseField::from(a_array);
-            let b = PackedBaseField::from(b_array);
-            let expected = PackedBaseField::from(expected_array);
+            let a = FixedPackedBaseField::broadcast_from_f64(2.5);
+            let b = FixedPackedBaseField::broadcast_from_f64(1.5);
+            let expected = FixedPackedBaseField::broadcast_from_f64(4.0); // 2.5 + 1.5 = 4.0
 
             test_packed_op(Op::Add, vec![a, b], vec![expected]);
         }
 
         // Test SUB
         {
-            let a_array = [BaseField::from_f64(2.5); N_LANES];
-            let b_array = [BaseField::from_f64(1.5); N_LANES];
-            let expected_array = [BaseField::from_f64(1.0); N_LANES]; // 2.5 - 1.5 = 1.0
-
-            let a = PackedBaseField::from(a_array);
-            let b = PackedBaseField::from(b_array);
-            let expected = PackedBaseField::from(expected_array);
+            let a = FixedPackedBaseField::broadcast_from_f64(2.5);
+            let b = FixedPackedBaseField::broadcast_from_f64(1.5);
+            let expected = FixedPackedBaseField::broadcast_from_f64(1.0); // 2.5 - 1.5 = 1.0
 
             test_packed_op(Op::Sub, vec![a, b], vec![expected]);
         }
 
         // Test MUL
         {
-            let a_array = [BaseField::from_f64(2.0); N_LANES];
-            let b_array = [BaseField::from_f64(1.5); N_LANES];
-
-            let a = PackedBaseField::from(a_array);
-            let b = PackedBaseField::from(b_array);
-            let (expected, rem) = a.fixed_mul_rem(b);
+            let a = FixedPackedBaseField::broadcast_from_f64(2.5);
+            let b = FixedPackedBaseField::broadcast_from_f64(1.5);
+            let (expected, rem) = a * b;
 
             test_packed_op(Op::Mul, vec![a, b], vec![expected, rem]);
         }

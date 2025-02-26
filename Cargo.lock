@@ -421,11 +421,13 @@ dependencies = [
 name = "numerair"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "lazy_static",
  "num-traits",
  "once_cell",
  "rand",
  "rayon",
+ "serde",
  "stwo-prover",
 ]
 
