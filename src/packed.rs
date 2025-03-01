@@ -43,9 +43,11 @@ impl FixedPackedM31 {
     /// Converts a fixed-size array of f64 values to a fixed-point SIMD representation.
     #[inline]
     pub fn from_f64_array(values: [f64; N_LANES]) -> Self {
-        Self(PackedM31(Simd::from_array(
-            values.map(|v| FixedM31::from_f64(v).0 .0),
-        )))
+        Self(unsafe {
+            PackedM31::from_simd_unchecked(Simd::from_array(
+                values.map(|v| FixedM31::from_f64(v).0 .0),
+            ))
+        })
     }
 
     /// Converts the fixed-point SIMD values to a fixed-size array of f64.
