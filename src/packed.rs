@@ -31,7 +31,7 @@ impl FixedPackedM31 {
     /// Creates a new instance with all elements set to the given scaled value.
     #[inline(always)]
     pub fn broadcast_scaled(FixedM31(value): FixedM31) -> Self {
-        Self(PackedM31(Simd::splat(value.0)))
+        Self(PackedM31::broadcast(value))
     }
 
     /// Creates a new instance with all elements set to the given unscaled value.
