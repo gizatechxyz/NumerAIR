@@ -58,7 +58,7 @@ mod tests {
     use num_traits::Zero;
     use rand::{rngs::StdRng, Rng, SeedableRng};
     use stwo_prover::{
-        constraint_framework::{self, preprocessed_columns::gen_is_first, FrameworkEval},
+        constraint_framework::{self, preprocessed_columns::IsFirst, FrameworkEval},
         core::{
             backend::{simd::SimdBackend, Col, Column, CpuBackend},
             fields::{
@@ -156,7 +156,8 @@ mod tests {
         }
 
         let trace_evals = columns_to_evaluations(trace_cols.clone(), domain);
-        let trace = TreeVec::new(vec![vec![gen_is_first(LOG_SIZE)], trace_evals, Vec::new()]);
+        let is_first = IsFirst::new(LOG_SIZE).gen_column_simd().to_cpu();
+        let trace = TreeVec::new(vec![vec![is_first], trace_evals, Vec::new()]);
 
         let trace_polys = trace.map_cols(|c| c.interpolate());
 
@@ -172,7 +173,7 @@ mod tests {
             |eval| {
                 component.evaluate(eval);
             },
-            (SecureField::zero(), None),
+            SecureField::zero(),
         );
 
         // Test invalid trace - modify the output column
@@ -184,11 +185,8 @@ mod tests {
         }
 
         let invalid_trace_evals = columns_to_evaluations(invalid_trace_cols, domain);
-        let invalid_trace = TreeVec::new(vec![
-            vec![gen_is_first(LOG_SIZE)],
-            invalid_trace_evals,
-            Vec::new(),
-        ]);
+        let is_first = IsFirst::new(LOG_SIZE).gen_column_simd().to_cpu();
+        let invalid_trace = TreeVec::new(vec![vec![is_first], invalid_trace_evals, Vec::new()]);
 
         let invalid_trace_polys = invalid_trace.map_cols(|c| c.interpolate());
 
@@ -200,7 +198,7 @@ mod tests {
                 |eval| {
                     component.evaluate(eval);
                 },
-                (SecureField::zero(), None),
+                SecureField::zero(),
             );
         });
         assert!(result.is_err());
@@ -240,7 +238,8 @@ mod tests {
             })
             .collect();
 
-        let trace = TreeVec::new(vec![vec![gen_is_first(LOG_SIZE)], trace_evals, Vec::new()]);
+        let is_first = IsFirst::new(LOG_SIZE).gen_column_simd();
+        let trace = TreeVec::new(vec![vec![is_first], trace_evals, Vec::new()]);
 
         let trace_polys = trace.map_cols(|c| c.interpolate());
 
@@ -256,7 +255,7 @@ mod tests {
             |eval| {
                 component.evaluate(eval);
             },
-            (SecureField::zero(), None),
+            SecureField::zero(),
         );
 
         // Test invalid trace
@@ -284,11 +283,8 @@ mod tests {
             })
             .collect();
 
-        let invalid_trace = TreeVec::new(vec![
-            vec![gen_is_first(LOG_SIZE)],
-            invalid_trace_evals,
-            Vec::new(),
-        ]);
+        let is_first = IsFirst::new(LOG_SIZE).gen_column_simd();
+        let invalid_trace = TreeVec::new(vec![vec![is_first], invalid_trace_evals, Vec::new()]);
 
         // Generate invalid polys
         let invalid_trace_polys = invalid_trace.map_cols(|c| c.interpolate());
@@ -300,7 +296,7 @@ mod tests {
                 |eval| {
                     component.evaluate(eval);
                 },
-                (SecureField::zero(), None),
+                SecureField::zero(),
             );
         });
         assert!(result.is_err());
