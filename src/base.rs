@@ -1,6 +1,7 @@
 use std::ops::{Add, Div, Mul, Sub};
 
 use bytemuck::{Pod, Zeroable};
+use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 use stwo_prover::core::fields::m31::{M31, P};
 
@@ -197,6 +198,16 @@ impl Div for FixedM31 {
         } else {
             abs_result // Positive result
         }
+    }
+}
+
+impl Zero for FixedM31 {
+    fn zero() -> Self {
+        Self(M31::zero())
+    }
+
+    fn is_zero(&self) -> bool {
+        *self == Self::zero()
     }
 }
 

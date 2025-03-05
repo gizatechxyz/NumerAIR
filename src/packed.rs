@@ -1,3 +1,4 @@
+use num_traits::Zero;
 use once_cell::sync::Lazy;
 use std::ops::{Add, Mul, Sub};
 use std::simd::num::{SimdInt, SimdUint};
@@ -143,6 +144,16 @@ impl Mul for FixedPackedM31 {
                 FixedPackedM31(PackedBaseField::from_simd_unchecked(r_field.cast::<u32>())),
             )
         }
+    }
+}
+
+impl Zero for FixedPackedM31 {
+    fn zero() -> Self {
+        Self(PackedM31::zero())
+    }
+
+    fn is_zero(&self) -> bool {
+        self.0.is_zero()
     }
 }
 
