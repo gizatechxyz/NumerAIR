@@ -10,8 +10,8 @@ The library implements fixed-point arithmetic using M31 field elements with conf
 ```rust
 
 // Create fixed-point numbers
-let lhs = FixedBaseField::from_f64(3.14);
-let rhs = FixedBaseField::from_f64(2.0);
+let lhs = Fixed::from_f64(3.14);
+let rhs = Fixed::from_f64(2.0);
 
 // Basic arithmetic operations
 let sum = lhs + rhs;
