@@ -73,7 +73,7 @@ mod tests {
         },
     };
 
-    use crate::{IntRep, SCALE_FACTOR};
+    use crate::{Fixed, SCALE_FACTOR};
 
     use super::*;
 
@@ -139,7 +139,7 @@ mod tests {
             .collect()
     }
 
-    fn test_op(op: Op, inputs: Vec<IntRep>, expected_outputs: Vec<IntRep>) {
+    fn test_op(op: Op, inputs: Vec<Fixed>, expected_outputs: Vec<Fixed>) {
         const LOG_SIZE: u32 = 4;
         let domain = CanonicCoset::new(LOG_SIZE);
         let size = 1 << LOG_SIZE;
@@ -209,8 +209,8 @@ mod tests {
     fn test_add() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
-            let a = IntRep::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = IntRep::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
 
             test_op(Op::Add, vec![a, b], vec![a + b]);
         }
@@ -220,8 +220,8 @@ mod tests {
     fn test_sub() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
-            let a = IntRep::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = IntRep::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
             test_op(Op::Sub, vec![a, b], vec![a - b]);
         }
     }
@@ -235,8 +235,8 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 10.0;
             let b = (rng.gen::<f64>() - 0.5) * 10.0;
 
-            let fixed_a = IntRep::from_f64(a);
-            let fixed_b = IntRep::from_f64(b);
+            let fixed_a = Fixed::from_f64(a);
+            let fixed_b = Fixed::from_f64(b);
             let (expected, rem) = fixed_a * fixed_b;
 
             test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
@@ -256,8 +256,8 @@ mod tests {
         ];
 
         for (a, b) in special_cases {
-            let fixed_a = IntRep::from_f64(a);
-            let fixed_b = IntRep::from_f64(b);
+            let fixed_a = Fixed::from_f64(a);
+            let fixed_b = Fixed::from_f64(b);
             let (expected, rem) = fixed_a * fixed_b;
 
             test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);

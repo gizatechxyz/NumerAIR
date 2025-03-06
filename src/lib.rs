@@ -15,9 +15,9 @@ const REMAINDER_MASK: i64 = (1 << DEFAULT_SCALE) - 1;
 
 /// Integer representation of fixed-point Basefield.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-pub struct IntRep(pub i64);
+pub struct Fixed(pub i64);
 
-impl IntRep {
+impl Fixed {
     const SCALE_FACTOR: i64 = 1 << DEFAULT_SCALE;
 
     #[inline]
@@ -83,7 +83,7 @@ impl IntRep {
 }
 
 // Optimized arithmetic implementations
-impl Add for IntRep {
+impl Add for Fixed {
     type Output = Self;
 
     #[inline]
@@ -92,7 +92,7 @@ impl Add for IntRep {
     }
 }
 
-impl Sub for IntRep {
+impl Sub for Fixed {
     type Output = Self;
 
     #[inline]
@@ -102,7 +102,7 @@ impl Sub for IntRep {
 }
 
 /// Multiply with remainder for constraints - optimized
-impl Mul for IntRep {
+impl Mul for Fixed {
     type Output = (Self, Self);
 
     #[inline]
@@ -115,7 +115,7 @@ impl Mul for IntRep {
     }
 }
 
-impl Div for IntRep {
+impl Div for Fixed {
     type Output = Self;
 
     #[inline]
@@ -124,7 +124,7 @@ impl Div for IntRep {
     }
 }
 
-impl Zero for IntRep {
+impl Zero for Fixed {
     #[inline]
     fn zero() -> Self {
         Self(0)
@@ -150,8 +150,8 @@ mod tests {
 
     #[test]
     fn test_negative() {
-        let a = IntRep::from_f64(-3.5);
-        let b = IntRep::from_f64(2.0);
+        let a = Fixed::from_f64(-3.5);
+        let b = Fixed::from_f64(2.0);
 
         assert_near(a.to_f64(), -3.5);
         assert_near((a + b.clone()).to_f64(), -1.5);
@@ -166,8 +166,8 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 200.0;
             let b = (rng.gen::<f64>() - 0.5) * 200.0;
 
-            let fa = IntRep::from_f64(a);
-            let fb = IntRep::from_f64(b);
+            let fa = Fixed::from_f64(a);
+            let fb = Fixed::from_f64(b);
 
             assert_near((fa + fb).to_f64(), a + b);
         }
@@ -181,8 +181,8 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 200.0;
             let b = (rng.gen::<f64>() - 0.5) * 200.0;
 
-            let fa = IntRep::from_f64(a);
-            let fb = IntRep::from_f64(b);
+            let fa = Fixed::from_f64(a);
+            let fb = Fixed::from_f64(b);
 
             assert_near((fa - fb).to_f64(), a - b);
         }
@@ -196,8 +196,8 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 10.0;
             let b = (rng.gen::<f64>() - 0.5) * 10.0;
 
-            let fa = IntRep::from_f64(a);
-            let fb = IntRep::from_f64(b);
+            let fa = Fixed::from_f64(a);
+            let fb = Fixed::from_f64(b);
 
             let (q, _) = fa * fb;
             let expected = a * b;
@@ -214,8 +214,8 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 10.0;
             let b = (rng.gen::<f64>() - 0.5) * 10.0;
 
-            let fa = IntRep::from_f64(a);
-            let fb = IntRep::from_f64(b);
+            let fa = Fixed::from_f64(a);
+            let fb = Fixed::from_f64(b);
 
             let result = (fa / fb).to_f64();
             let expected = a / b;
@@ -238,8 +238,8 @@ mod tests {
         ];
 
         for (a, b, expected) in test_cases {
-            let fa = IntRep::from_f64(a);
-            let fb = IntRep::from_f64(b);
+            let fa = Fixed::from_f64(a);
+            let fb = Fixed::from_f64(b);
             let result = (fa / fb).to_f64();
             assert_near(result, expected);
         }
