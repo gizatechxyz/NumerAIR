@@ -10,6 +10,8 @@ pub const DEFAULT_SCALE: u32 = 12;
 pub const SCALE_FACTOR: M31 = M31::from_u32_unchecked(1 << DEFAULT_SCALE);
 // Half the prime modulus.
 pub const HALF_P: u32 = P / 2;
+// Mask for remainder in fixed-point operations (2^DEFAULT_SCALE - 1)
+const REMAINDER_MASK: i64 = (1 << DEFAULT_SCALE) - 1;
 
 /// Integer representation of fixed-point Basefield.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -18,26 +20,28 @@ pub struct IntRep(pub i64);
 impl IntRep {
     const SCALE_FACTOR: i64 = 1 << DEFAULT_SCALE;
 
-    /// Convert from a float
+    #[inline]
     pub fn from_f64(value: f64) -> Self {
         Self((value * Self::SCALE_FACTOR as f64).round() as i64)
     }
 
+    #[inline]
     /// Convert to a float
     pub fn to_f64(self) -> f64 {
         self.0 as f64 / Self::SCALE_FACTOR as f64
     }
 
+    #[inline]
     /// Convert to M31 for Stwo
     pub fn to_m31(self) -> M31 {
         const MODULUS_BITS: u32 = 31;
 
         if self.0 >= 0 {
-            // For positive numbers, we use the M31 reduce directly
-            let val = self.0 as u64;
-            M31::reduce(val)
+            // For positive numbers, use M31 reduce directly
+            M31::reduce(self.0 as u64)
         } else {
-            // For negative numbers, we need to compute P - (abs(value) % P)
+            // For negative numbers, efficiently compute P - (abs(value) % P)
+            // This is a fast implementation of modulo for 2^31-1
             let abs_val = (-self.0) as u64;
             let abs_mod = (((((abs_val >> MODULUS_BITS) + abs_val + 1) >> MODULUS_BITS) + abs_val)
                 & (P as u64)) as u32;
@@ -50,42 +54,39 @@ impl IntRep {
         }
     }
 
+    #[inline]
     /// Convert from M31
     pub fn from_m31(value: M31) -> Self {
         let m31_val = value.0;
         let is_negative = m31_val > HALF_P;
-        let val = if is_negative {
-            (P - m31_val) as i64
+
+        if is_negative {
+            Self(-((P - m31_val) as i64))
         } else {
-            m31_val as i64
-        };
-        Self(if is_negative { -val } else { val })
+            Self(m31_val as i64)
+        }
     }
 
+    #[inline]
     /// Division with remainder for constraints
     pub fn div_rem(self, rhs: Self) -> (Self, Self) {
         assert!(rhs.0 != 0, "Division by zero");
 
-        // Handle division with proper rounding toward negative infinity
-        let scaled = self.0 * Self::SCALE_FACTOR;
-        let is_negative = (self.0 < 0) != (rhs.0 < 0);
-        let self_negative = self.0 < 0;
+        // Compute quotient
+        let quotient = (self.0 << DEFAULT_SCALE) / rhs.0;
 
-        let abs_scaled = scaled.abs();
-        let abs_rhs = rhs.0.abs();
+        // Compute remainder from quotient
+        let remainder = self.0 - ((quotient * rhs.0) >> DEFAULT_SCALE);
 
-        let abs_quotient = abs_scaled / abs_rhs;
-        let abs_remainder = abs_scaled % abs_rhs;
-
-        let sign_q = (-(is_negative as i64)) | 1; // -1 if negative, 1 if positive
-        let sign_r = (-(self_negative as i64)) | 1; // -1 if negative, 1 if positive
-
-        (Self(abs_quotient * sign_q), Self(abs_remainder * sign_r))
+        (Self(quotient), Self(remainder))
     }
 }
 
+// Optimized arithmetic implementations
 impl Add for IntRep {
     type Output = Self;
+
+    #[inline]
     fn add(self, rhs: Self) -> Self::Output {
         Self(self.0 + rhs.0)
     }
@@ -93,36 +94,45 @@ impl Add for IntRep {
 
 impl Sub for IntRep {
     type Output = Self;
+
+    #[inline]
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0 - rhs.0)
     }
 }
 
-/// Multiply with remainder for constraints
+/// Multiply with remainder for constraints - optimized
 impl Mul for IntRep {
     type Output = (Self, Self);
+
+    #[inline]
     fn mul(self, rhs: Self) -> Self::Output {
         let product = self.0 * rhs.0;
-        let quotient = product >> DEFAULT_SCALE;
-        let remainder = product & ((1 << DEFAULT_SCALE) - 1);
-        (Self(quotient), Self(remainder))
+        (
+            Self(product >> DEFAULT_SCALE),
+            Self(product & REMAINDER_MASK),
+        )
     }
 }
 
 impl Div for IntRep {
     type Output = Self;
+
+    #[inline]
     fn div(self, rhs: Self) -> Self::Output {
-        self.div_rem(rhs).0
+        Self((self.0 << DEFAULT_SCALE) / rhs.0)
     }
 }
 
 impl Zero for IntRep {
+    #[inline]
     fn zero() -> Self {
         Self(0)
     }
 
+    #[inline]
     fn is_zero(&self) -> bool {
-        *self == Self::zero()
+        self.0 == 0
     }
 }
 
@@ -144,7 +154,7 @@ mod tests {
         let b = IntRep::from_f64(2.0);
 
         assert_near(a.to_f64(), -3.5);
-        assert_near((a.clone() + b.clone()).to_f64(), -1.5);
+        assert_near((a + b.clone()).to_f64(), -1.5);
         assert_near((a - b).to_f64(), -5.5);
     }
 
