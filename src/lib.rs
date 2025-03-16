@@ -1,5 +1,5 @@
 use num_traits::Zero;
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, Div, Mul, Sub, Rem};
 use stwo_prover::core::fields::m31::{M31, P};
 
 pub mod eval;
@@ -124,6 +124,15 @@ impl Div for Fixed {
     }
 }
 
+impl Rem for Fixed {
+    type Output = Self;
+
+    #[inline]
+    fn rem(self, rhs: Self) -> Self::Output {
+        Self(self.0 % rhs.0)
+    }
+}
+
 impl Zero for Fixed {
     #[inline]
     fn zero() -> Self {
@@ -243,5 +252,30 @@ mod tests {
             let result = (fa / fb).to_f64();
             assert_near(result, expected);
         }
+    }
+
+    #[test]
+    fn test_rem() {
+        let test_cases = vec![
+            (5.0, 2.0, 1.0),
+            (-5.0, 2.0, -1.0),
+            (5.0, -2.0, 1.0),
+            (-5.0, -2.0, -1.0),
+            (7.5, 2.5, 0.0),
+            (3.2, 1.5, 0.2),
+        ];
+
+        for (a, b, expected) in test_cases {
+            let fa = Fixed::from_f64(a);
+            let fb = Fixed::from_f64(b);
+            let result = (fa % fb).to_f64();
+            assert_near(result, expected);
+        }
+    }
+
+    #[test]
+    fn test_zero() {
+        assert!(Fixed::zero().is_zero());
+        assert!(!Fixed::from_f64(1.0).is_zero());
     }
 }
