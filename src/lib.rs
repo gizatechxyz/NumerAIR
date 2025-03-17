@@ -268,7 +268,7 @@ mod tests {
         for (a, b, expected) in test_cases {
             let fa = Fixed::from_f64(a);
             let fb = Fixed::from_f64(b);
-            let result = (fa.rem(fb)).to_f64();
+            let result = (fa % fb).to_f64();
             assert_near(result, expected);
         }
     }
