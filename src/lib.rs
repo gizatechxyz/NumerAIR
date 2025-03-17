@@ -265,9 +265,23 @@ mod tests {
             (3.2, 1.5, 0.2),
         ];
 
-        for (a, b, expected) in test_cases {
+        for (a, b, expected) in test_cases.clone() {
             let fa = Fixed::from_f64(a);
             let fb = Fixed::from_f64(b);
+            let result = (fa % fb).to_f64();
+            assert_near(result, expected);
+        }
+
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for _ in 0..1000 {
+            let a = (rng.gen::<f64>() - 0.5) * 100.0;
+            let b = (rng.gen::<f64>() - 0.5) * 100.0;
+            let expected = a % b;
+
+            let fa = Fixed::from_f64(a);
+            let fb = Fixed::from_f64(b);
+
             let result = (fa % fb).to_f64();
             assert_near(result, expected);
         }
