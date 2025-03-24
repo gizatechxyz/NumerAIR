@@ -72,13 +72,9 @@ impl Fixed {
     pub fn div_rem(self, rhs: Self) -> (Self, Self) {
         assert!(rhs.0 != 0, "Division by zero");
 
-        // Compute quotient
-        let quotient = (self.0 << DEFAULT_SCALE) / rhs.0;
-
-        // Compute remainder from quotient
-        let remainder = self.0 - ((quotient * rhs.0) >> DEFAULT_SCALE);
-
-        (Self(quotient), Self(remainder))
+        let quotient = (((self.0 as i128) << DEFAULT_SCALE) / (rhs.0 as i128)) as i64;
+        let remainder = (self.0 as i128) - ((quotient as i128 * rhs.0 as i128) >> DEFAULT_SCALE);
+        (Self(quotient), Self(remainder as i64))
     }
 
     /// Computes square root and remainder using a hybrid Newton approach.
@@ -130,11 +126,10 @@ impl Mul for Fixed {
 
     #[inline]
     fn mul(self, rhs: Self) -> Self::Output {
-        let product = self.0 * rhs.0;
-        (
-            Self(product >> DEFAULT_SCALE),
-            Self(product & REMAINDER_MASK),
-        )
+        let product = (self.0 as i128) * (rhs.0 as i128);
+        let quotient = (product >> DEFAULT_SCALE) as i64;
+        let remainder = (product & (REMAINDER_MASK as i128)) as i64;
+        (Self(quotient), Self(remainder))
     }
 }
 
@@ -143,7 +138,7 @@ impl Div for Fixed {
 
     #[inline]
     fn div(self, rhs: Self) -> Self::Output {
-        Self((self.0 << DEFAULT_SCALE) / rhs.0)
+        Self((((self.0 as i128) << DEFAULT_SCALE) / (rhs.0 as i128)) as i64)
     }
 }
 
