@@ -159,6 +159,7 @@ mod tests {
     use super::*;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
+    use std::time::Instant;
 
     const EPSILON: f64 = 1e-2;
 
@@ -260,6 +261,53 @@ mod tests {
             let fb = Fixed::from_f64(b);
             let result = (fa / fb).to_f64();
             assert_near(result, expected);
+        }
+    }
+
+    #[test]
+    fn test_sqrt() {
+        let mut test_cases = vec![
+            (0.0, 0.0),
+            (-1.0, 0.0), // Negative input: sqrt should return 0
+            (1.0, 1.0),
+            (4.0, 2.0),
+            (2.0, std::f64::consts::SQRT_2), // Irrational result
+            (9.0, 3.0),
+            (1e6, 1e3),
+            (10.0, 3.162277), // Larger input
+            (0.25, 0.5),      // Fractional input
+        ];
+
+        let mut rng = StdRng::seed_from_u64(42);
+        // Only generate random values in a range safely representable.
+        for _ in 0..100 {
+            let value: f64 = rng.gen_range(1e-3..1e6);
+            test_cases.push((value, value.sqrt()));
+        }
+
+        for (input, expected) in test_cases {
+            let fixed_input = Fixed::from_f64(input);
+
+            if input < 0.0 {
+                println!("Input: {:.6e} (negative)", input);
+                let (result, remainder) = fixed_input.sqrt();
+                assert_eq!(result.0, 0);
+                assert_eq!(remainder.0, 0);
+                continue;
+            }
+
+            let start = Instant::now();
+            let (result, _) = fixed_input.sqrt();
+            let duration = start.elapsed();
+
+            let result_f64 = result.to_f64();
+
+            assert_near(result_f64, expected);
+
+            println!(
+                "Input: {:.6e}, Expected: {:.6e}, sqrt: {:.6e} ({:?})",
+                input, expected, result_f64, duration
+            );
         }
     }
 }
