@@ -81,82 +81,26 @@ impl Fixed {
         (Self(quotient), Self(remainder))
     }
 
-    /// Sqrt returns the result and remainder
-    pub fn sqrt1(self) -> (Self, Self) {
-        assert!(self.0 >= 0, "Cannot compute square root of negative number");
-
-        // For the square root of a fixed-point number x * 2^n,
-        // we want to compute sqrt(x) * 2^(n/2)
-        // Since our scaling is 2^12, we need to adjust by 2^6
-
-        // Take the square root of the f64 representation
-        let float_value = self.to_f64();
-        let sqrt_float = float_value.sqrt();
-
-        // Convert back to Fixed
-        let result = Self::from_f64(sqrt_float);
-
-        // Compute the remainder: self - result²
-        let (product, _) = result * result;
-        let remainder = self - product;
-
-        (result, remainder)
-    }
-
-    /// Computes square root and remainder using Newton's method
+    /// Computes square root and remainder using a hybrid Newton approach.
     #[inline]
-    pub fn sqrt2(self) -> (Self, Self) {
-        // Handle edge cases
+    pub fn sqrt(self) -> (Self, Self) {
         if self.0 <= 0 {
             return (Self::zero(), Self::zero());
         }
-
-        // Initial guess - start with a reasonable approximation
-        let mut x = Self(self.0 >> 1); // Start with input/2
-
-        // Ensure our initial guess is at least 1
-        if x.0 == 0 {
-            x = Self(Self::SCALE_FACTOR); // 1.0 in fixed point
-        }
-
-        // Perform a few iterations of Newton's method:
-        // x_{n+1} = (x_n + value/x_n) / 2
-        for _ in 0..5 {
-            // Calculate value/x
+        // initial guess via floating point
+        let mut x = Self::from_f64(self.to_f64().sqrt());
+        const TOLERANCE_SCALED: i64 = 1;
+        for _ in 0..10 {
             let (division, _) = self.div_rem(x);
-
-            // x = (x + value/x) / 2
-            x = Self((x.0 + division.0) >> 1);
+            let new_x = Self((x.0 + division.0) >> 1);
+            if (new_x.0 - x.0).abs() <= TOLERANCE_SCALED {
+                x = new_x;
+                break;
+            }
+            x = new_x;
         }
-
-        // Calculate remainder: rem = input - result^2
         let (squared, _) = x * x;
         let remainder = Self(self.0 - squared.0);
-
-        (x, remainder)
-    }
-
-    pub fn sqrt_hybrid(self) -> (Self, Self) {
-        // Handle edge and zero cases.
-        if self.0 <= 0 {
-            return (Self::zero(), Self::zero());
-        }
-
-        // Use f64 sqrt as an initial guess.
-        let initial_guess = Self::from_f64(self.to_f64().sqrt());
-        let mut x = initial_guess;
-
-        // Perform Newton's method iterations: x_{n+1} = (x_n + self/x_n)/2.
-        // More iterations can improve precision.
-        for _ in 0..5 {
-            let (quotient, _) = self.div_rem(x);
-            x = Self((x.0 + quotient.0) >> 1);
-        }
-
-        // Calculate remainder: rem = self - x^2.
-        let (squared, _) = x * x;
-        let remainder = Self(self.0 - squared.0);
-
         (x, remainder)
     }
 }
