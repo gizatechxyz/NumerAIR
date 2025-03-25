@@ -77,28 +77,41 @@ impl Fixed {
         (Self(quotient), Self(remainder as i64))
     }
 
-    /// Computes square root and remainder using a hybrid Newton approach.
-    #[inline]
-    pub fn sqrt(self) -> (Self, Self) {
+    /// Computes the square root in the fully scaled domain.
+    //
+    // Given that Fixed::0 = floor(real_value * SCALE_FACTOR),
+    // we want to compute `out` and `rem` such that:
+    //
+    //     out^2 + rem = input * SCALE_FACTOR
+    //
+    // where `out` is the fixed-point representation of sqrt(real_value)
+    // and 0 <= rem < SCALE_FACTOR.
+    pub fn sqrt(&self) -> (Self, Self) {
         if self.0 <= 0 {
-            return (Self::zero(), Self::zero());
+            return (Self(0), Self(0));
         }
-        // initial guess via floating point
-        let mut x = Self::from_f64(self.to_f64().sqrt());
-        const TOLERANCE_SCALED: i64 = 1;
-        for _ in 0..10 {
-            let (division, _) = self.div_rem(x);
-            let new_x = Self((x.0 + division.0) >> 1);
-            if (new_x.0 - x.0).abs() <= TOLERANCE_SCALED {
-                x = new_x;
-                break;
-            }
-            x = new_x;
-        }
-        let (squared, _) = x * x;
-        let remainder = Self(self.0 - squared.0);
-        (x, remainder)
+        // Multiply self.0 by SCALE_FACTOR to move to the "squared" domain.
+        let t = self.0 * (1 << DEFAULT_SCALE);
+        // Compute the integer square root of t.
+        let y = int_sqrt(t as u64) as i64;
+        let squared = y * y;
+        let remainder = t - squared;
+        (Self(y), Self(remainder))
     }
+}
+
+/// Returns the floor of the square root of `n`.
+pub fn int_sqrt(n: u64) -> u64 {
+    if n < 2 {
+        return n;
+    }
+    // Initial guess.
+    let mut x = n / 2;
+    // Newton's method iteration.
+    while x * x > n {
+        x = (x + n / x) / 2;
+    }
+    x
 }
 
 // Optimized arithmetic implementations
@@ -159,7 +172,6 @@ mod tests {
     use super::*;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
-    use std::time::Instant;
 
     const EPSILON: f64 = 1e-2;
 
@@ -266,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_sqrt() {
-        let mut test_cases = vec![
+        let test_cases = vec![
             (0.0, 0.0),
             (-1.0, 0.0), // Negative input: sqrt should return 0
             (1.0, 1.0),
