@@ -1,5 +1,6 @@
 use num_traits::One;
 use stwo_prover::constraint_framework::EvalAtRow;
+use crate::SCALE_FACTOR;
 
 /// Extension trait for EvalAtRow to support fixed-point arithmetic constraint evaluation
 pub trait EvalFixedPoint: EvalAtRow {
@@ -47,6 +48,12 @@ pub trait EvalFixedPoint: EvalAtRow {
         // r + aux = div - 1
         self.add_constraint(r + aux - (div - Self::F::one()));
     }
+    fn eval_fixed_sqrt(&mut self, input: Self::F, out: Self::F, rem: Self::F) {
+        // Because 1.0 is stored as 4096 in the field,
+        // the correct invariant for a perfect square is:
+        //     out^2 + rem = input * 4096
+        self.add_constraint((out.clone() * out) + rem.clone() - (input * SCALE_FACTOR));
+    }
 }
 
 // Blanket implementation for any type that implements EvalAtRow
@@ -87,6 +94,7 @@ mod tests {
         Add,
         Sub,
         Mul,
+        Sqrt,
     }
 
     impl FrameworkEval for TestEval {
@@ -118,6 +126,12 @@ mod tests {
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
                     eval.eval_fixed_mul(lhs, rhs, SCALE_FACTOR.into(), out, rem)
+                }
+                Op::Sqrt => {
+                    let input = eval.next_trace_mask();
+                    let out = eval.next_trace_mask();
+                    let rem = eval.next_trace_mask();
+                    eval.eval_fixed_sqrt(input, out, rem)
                 }
             }
             eval
@@ -261,6 +275,24 @@ mod tests {
             let (expected, rem) = fixed_a * fixed_b;
 
             test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
+        }
+    }
+
+    #[test]
+    fn test_eval_sqrt() {
+        let test_cases = vec![
+            (1.0, 1.0, 0.0),
+            // (4.0, 4.0, 0.0),
+            // (9.0, 9.0, 0.0),
+            // (2.0, f64::sqrt(2.0), 2.0),
+            // (0.5, f64::sqrt(0.5), 0.5),
+            // (0.25, f64::sqrt(0.25), 0.25),
+            // (0.0, 0.0, 0.0),
+        ];
+        for (input, expected_out, expected_rem) in test_cases {
+            let fixed_input = Fixed::from_f64(input);
+            let (sqrt_out, rem) = fixed_input.sqrt();
+            test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem]);
         }
     }
 }

@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_sqrt() {
-        let test_cases = vec![
+        let mut test_cases = vec![
             (0.0, 0.0),
             (-1.0, 0.0), // Negative input: sqrt should return 0
             (1.0, 1.0),
@@ -308,10 +308,7 @@ mod tests {
                 continue;
             }
 
-            let start = Instant::now();
             let (result, _) = fixed_input.sqrt();
-            let duration = start.elapsed();
-
             let result_f64 = result.to_f64();
 
             assert_near(result_f64, expected);
