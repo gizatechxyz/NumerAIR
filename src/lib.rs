@@ -1,5 +1,5 @@
 use num_traits::Zero;
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, Mul, Sub};
 use stwo_prover::core::fields::m31::{M31, P};
 
 pub mod eval;
@@ -67,16 +67,18 @@ impl Fixed {
         }
     }
 
+    /// Computes the reciprocal (1/x) of a fixed-point number
+    ///
+    /// Returns a tuple of (quotient, remainder) where:
+    /// - quotient is the fixed-point representation of 1/x
+    /// - remainder is the remainder after division
     #[inline]
-    /// Division with remainder for constraints
-    pub fn div_rem(self, rhs: Self) -> (Self, Self) {
-        assert!(rhs.0 != 0, "Division by zero");
+    pub fn recip(self) -> (Self, Self) {
+        assert!(self.0 != 0, "Division by zero");
 
-        // Compute quotient
-        let quotient = (self.0 << DEFAULT_SCALE) / rhs.0;
-
-        // Compute remainder from quotient
-        let remainder = self.0 - ((quotient * rhs.0) >> DEFAULT_SCALE);
+        let scale_squared = Self::SCALE_FACTOR * Self::SCALE_FACTOR;
+        let quotient = scale_squared / self.0;
+        let remainder = scale_squared % self.0;
 
         (Self(quotient), Self(remainder))
     }
@@ -110,15 +112,6 @@ impl Mul for Fixed {
             Self(product >> DEFAULT_SCALE),
             Self(product & REMAINDER_MASK),
         )
-    }
-}
-
-impl Div for Fixed {
-    type Output = Self;
-
-    #[inline]
-    fn div(self, rhs: Self) -> Self::Output {
-        Self((self.0 << DEFAULT_SCALE) / rhs.0)
     }
 }
 
@@ -205,41 +198,36 @@ mod tests {
     }
 
     #[test]
-    fn test_div() {
+    fn test_recip() {
         let mut rng = StdRng::seed_from_u64(42);
 
-        for _ in 0..5 {
+        for _ in 0..100 {
             let a = (rng.gen::<f64>() - 0.5) * 10.0;
-            let b = (rng.gen::<f64>() - 0.5) * 10.0;
+            if a.abs() < 0.1 {
+                continue;
+            }
 
-            let fa = Fixed::from_f64(a);
-            let fb = Fixed::from_f64(b);
+            let fixed_a = Fixed::from_f64(a);
+            let (recip, _) = fixed_a.recip();
+            let expected = 1.0 / a;
 
-            let result = (fa / fb).to_f64();
-            let expected = a / b;
-
-            assert_near(result, expected);
+            assert_near(recip.to_f64(), expected);
         }
-    }
 
-    #[test]
-    fn test_div_edge_cases() {
         // Test specific cases
         let test_cases = vec![
-            (3.5, 2.0, 1.75),   // Simple positive division
-            (-3.5, 2.0, -1.75), // Negative numerator
-            (3.5, -2.0, -1.75), // Negative denominator
-            (-3.5, -2.0, 1.75), // Both negative
-            (1.0, 2.0, 0.5),    // Fraction less than 1
-            (0.0, 2.0, 0.0),    // Zero numerator
-            (1.0, 0.5, 2.0),    // Denominator less than 1
+            (1.0, 1.0),   // Reciprocal of 1 is 1
+            (2.0, 0.5),   // Reciprocal of 2 is 0.5
+            (0.5, 2.0),   // Reciprocal of 0.5 is 2
+            (4.0, 0.25),  // Reciprocal of 4 is 0.25
+            (-1.0, -1.0), // Reciprocal of -1 is -1
+            (-2.0, -0.5), // Reciprocal of -2 is -0.5
         ];
 
-        for (a, b, expected) in test_cases {
-            let fa = Fixed::from_f64(a);
-            let fb = Fixed::from_f64(b);
-            let result = (fa / fb).to_f64();
-            assert_near(result, expected);
+        for (a, expected) in test_cases {
+            let fixed_a = Fixed::from_f64(a);
+            let (recip, _) = fixed_a.recip();
+            assert_near(recip.to_f64(), expected);
         }
     }
 }
