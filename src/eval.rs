@@ -47,6 +47,22 @@ pub trait EvalFixedPoint: EvalAtRow {
         // r + aux = div - 1
         self.add_constraint(r + aux - (div - Self::F::one()));
     }
+
+    /// Evaluates reciprocal constraints for fixed-point numbers
+    /// Constrains: scale*scale = input * output + rem
+    ///
+    /// Parameters:
+    /// - input: the input value
+    /// - scale: the scale factor (typically SCALE_FACTOR)
+    /// - output: the reciprocal result
+    /// - rem: the remainder
+    fn eval_fixed_recip(&mut self, input: Self::F, scale: Self::F, output: Self::F, rem: Self::F) {
+        // Compute scale^2
+        let scale_squared = self.add_intermediate(scale.clone() * scale);
+
+        // constrain scale^2 = input * output + rem
+        self.eval_fixed_div_rem(scale_squared, input, output, rem);
+    }
 }
 
 // Blanket implementation for any type that implements EvalAtRow
@@ -87,6 +103,7 @@ mod tests {
         Add,
         Sub,
         Mul,
+        Recip,
     }
 
     impl FrameworkEval for TestEval {
@@ -118,6 +135,12 @@ mod tests {
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
                     eval.eval_fixed_mul(lhs, rhs, SCALE_FACTOR.into(), out, rem)
+                }
+                Op::Recip => {
+                    let input = eval.next_trace_mask();
+                    let out = eval.next_trace_mask();
+                    let rem = eval.next_trace_mask();
+                    eval.eval_fixed_recip(input, SCALE_FACTOR.into(), out, rem)
                 }
             }
             eval
@@ -232,14 +255,11 @@ mod tests {
 
         // Test regular multiplication cases
         for _ in 0..100 {
-            let a = (rng.gen::<f64>() - 0.5) * 10.0;
-            let b = (rng.gen::<f64>() - 0.5) * 10.0;
+            let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let (expected, rem) = a * b;
 
-            let fixed_a = Fixed::from_f64(a);
-            let fixed_b = Fixed::from_f64(b);
-            let (expected, rem) = fixed_a * fixed_b;
-
-            test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
+            test_op(Op::Mul, vec![a, b], vec![expected, rem]);
         }
 
         // Test special cases
@@ -261,6 +281,36 @@ mod tests {
             let (expected, rem) = fixed_a * fixed_b;
 
             test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
+        }
+    }
+
+    #[test]
+    fn test_recip() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        // Test regular multiplication cases
+        for _ in 0..100 {
+            let input = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let (expected, rem) = input.recip();
+
+            test_op(Op::Recip, vec![input], vec![expected, rem]);
+        }
+
+        // Test special cases
+        let special_cases = vec![
+            1.0,   // Unit case
+            2.0,   // Integer > 1
+            0.5,   // Fraction between 0 and 1
+            4.25,  // Mixed number
+            -1.0,  // Negative unit
+            -0.25, // Negative fraction
+        ];
+
+        for input in special_cases {
+            let fixed_input = Fixed::from_f64(input);
+            let (expected, rem) = fixed_input.recip();
+
+            test_op(Op::Recip, vec![fixed_input], vec![expected, rem]);
         }
     }
 }
