@@ -178,11 +178,11 @@ impl Mul for Fixed {
 
     #[inline]
     fn mul(self, rhs: Self) -> Self::Output {
-        // Use i128 for intermediate calculations to prevent overflow
-        let product = (self.0 as i128) * (rhs.0 as i128);
-        let quotient = (product >> DEFAULT_SCALE) as i64;
-        let remainder = (product & (REMAINDER_MASK as i128)) as i64;
-        (Self(quotient), Self(remainder))
+        let product = self.0 * rhs.0;
+        (
+            Self(product >> DEFAULT_SCALE),
+            Self(product & REMAINDER_MASK),
+        )
     }
 }
 

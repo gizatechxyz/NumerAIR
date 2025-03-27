@@ -4,65 +4,58 @@ use crate::SCALE_FACTOR;
 
 /// Extension trait for EvalAtRow to support fixed-point arithmetic constraint evaluation
 pub trait EvalFixedPoint: EvalAtRow {
-    /// Evaluates addition constraints for fixed point numbers.
-    fn eval_fixed_add(&mut self, lhs: Self::F, rhs: Self::F, out: Self::F) {
-        self.add_constraint(out - (lhs + rhs));
+    /// Evaluates addition constraints for fixed-point numbers.
+    fn eval_fixed_add(&mut self, a: Self::F, b: Self::F, sum: Self::F) {
+        self.add_constraint(sum - (a + b));
     }
 
-    /// Evaluates subtraction constraints for fixed point numbers.
-    fn eval_fixed_sub(&mut self, lhs: Self::F, rhs: Self::F, out: Self::F) {
-        self.add_constraint(out - (lhs - rhs));
+    /// Evaluates subtraction constraints for fixed-point numbers.
+    fn eval_fixed_sub(&mut self, a: Self::F, b: Self::F, diff: Self::F) {
+        self.add_constraint(diff - (a - b));
     }
 
-    /// Evaluates multiplication constraints for fixed-point numbers
+    /// Evaluates multiplication constraints for fixed-point numbers.
     fn eval_fixed_mul(
         &mut self,
-        lhs: Self::F,
-        rhs: Self::F,
+        a: Self::F,
+        b: Self::F,
         scale: Self::F,
-        out: Self::F,
-        rem: Self::F,
+        quotient: Self::F,
+        remainder: Self::F,
     ) {
-        let prod = self.add_intermediate(lhs * rhs);
-
-        // Constrain the division by scale factor
-        // out = prod / scale (quotient)
-        // rem = prod % scale (remainder)
-        self.eval_fixed_div_rem(prod, scale, out, rem);
+        let product = self.add_intermediate(a * b);
+        self.eval_fixed_div_rem(product, scale, quotient, remainder);
     }
 
-    /// Evaluates constraints for signed division with remainder
-    /// Constrains: value = q * div + r where
-    /// - q is the quotient
-    /// - r is the remainder
-    /// - 0 <= r < |div|
-    /// - q is rounded toward negative infinity
-    fn eval_fixed_div_rem(&mut self, value: Self::F, div: Self::F, q: Self::F, r: Self::F) {
-        // Core relationship: value = q * div + r
-        self.add_constraint(value - (q * div.clone() + r.clone()));
+    /// Evaluates constraints for signed division with remainder.
+    /// Constrains: dividend = quotient * divisor + remainder, where:
+    /// - quotient is rounded toward negative infinity,
+    /// - 0 <= remainder < |divisor|.
+    fn eval_fixed_div_rem(
+        &mut self,
+        dividend: Self::F,
+        divisor: Self::F,
+        quotient: Self::F,
+        remainder: Self::F,
+    ) {
+        self.add_constraint(dividend - (quotient * divisor.clone() + remainder.clone()));
 
-        // Compute an auxiliary variable to constrain the inequality r < div
-        let aux = self.add_intermediate(div.clone() - Self::F::one() - r.clone());
-
-        // Constraint that the remainder is less than the divisor
-        // r + aux = div - 1
-        self.add_constraint(r + aux - (div - Self::F::one()));
+        // Auxiliary variable to enforce remainder < divisor:
+        let aux = self.add_intermediate(divisor.clone() - Self::F::one() - remainder.clone());
+        self.add_constraint(remainder + aux - (divisor - Self::F::one()));
     }
 
-    /// Evaluates reciprocal constraints for fixed-point numbers
-    /// Constrains: scale*scale = input * output + rem
-    ///
-    /// Parameters:
-    /// - input: the input value
-    /// - scale: the scale factor (typically SCALE_FACTOR)
-    /// - output: the reciprocal result
-    /// - rem: the remainder
-    fn eval_fixed_recip(&mut self, input: Self::F, scale: Self::F, output: Self::F, rem: Self::F) {
-        // Compute scale^2
+    /// Evaluates reciprocal constraints for fixed-point numbers.
+    /// Constrains: scale * scale = value * reciprocal + remainder
+    fn eval_fixed_recip(
+        &mut self,
+        value: Self::F,
+        scale: Self::F,
+        reciprocal: Self::F,
+        remainder: Self::F,
+    ) {
         let scale_squared = self.add_intermediate(scale.clone() * scale);
-
-        // constrain scale^2 = input * output + rem
-        self.eval_fixed_div_rem(scale_squared, input, output, rem);
+        self.eval_fixed_div_rem(scale_squared, value, reciprocal, remainder);
     }
 
     fn eval_fixed_sqrt(&mut self, input: Self::F, out: Self::F, rem: Self::F) {
