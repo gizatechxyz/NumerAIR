@@ -82,7 +82,6 @@ impl Fixed {
     }
 }
 
-// Optimized arithmetic implementations
 impl Add for Fixed {
     type Output = Self;
 
@@ -101,7 +100,6 @@ impl Sub for Fixed {
     }
 }
 
-/// Multiply with remainder for constraints - optimized
 impl Mul for Fixed {
     type Output = (Self, Self);
 
