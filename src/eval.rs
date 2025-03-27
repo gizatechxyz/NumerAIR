@@ -161,14 +161,19 @@ mod tests {
         // Generate trace
         let mut trace_cols: Vec<Vec<BaseField>> =
             vec![Vec::new(); inputs.len() + expected_outputs.len()];
-        for _ in 0..size {
-            for (i, input) in inputs.iter().enumerate() {
-                trace_cols[i].push(input.to_m31());
+        for _i in 0..size {
+            for (j, input) in inputs.iter().enumerate() {
+                println!();
+                let input_m31 = input.to_m31();
+                println!("Input: {:?}, to_m31: {}", input, input_m31);
+                println!();
+                trace_cols[j].push(input.to_m31());
             }
-            for (i, output) in expected_outputs.iter().enumerate() {
-                trace_cols[inputs.len() + i].push(output.to_m31());
+            for (j, output) in expected_outputs.iter().enumerate() {
+                trace_cols[inputs.len() + j].push(output.to_m31());
             }
         }
+        println!("Trace cols: {:?}", trace_cols);
 
         let trace_evals = columns_to_evaluations(trace_cols.clone(), domain);
         let is_first = IsFirst::new(LOG_SIZE).gen_column_simd().to_cpu();
@@ -216,6 +221,7 @@ mod tests {
                 SecureField::zero(),
             );
         });
+        print!("{:?}", result);
         assert!(result.is_err());
     }
 
@@ -292,6 +298,10 @@ mod tests {
         for (input, expected_out, expected_rem) in test_cases {
             let fixed_input = Fixed::from_f64(input);
             let (sqrt_out, rem) = fixed_input.sqrt();
+            println!(
+                "Testing sqrt: input={:?}, out={:?}, rem={:?}, expected_out={:?}, expected_rem={:?}",
+                input, sqrt_out, rem, expected_out, Fixed::from_f64(expected_rem)
+            );
             test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem]);
         }
     }

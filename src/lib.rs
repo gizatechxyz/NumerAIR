@@ -311,12 +311,8 @@ mod tests {
             let (result, _) = fixed_input.sqrt();
             let result_f64 = result.to_f64();
 
+            println!("Input: {:.6e}, Expected:{}, Result: {:.6e}", input, expected, fixed_input.to_f64());
             assert_near(result_f64, expected);
-
-            println!(
-                "Input: {:.6e}, Expected: {:.6e}, sqrt: {:.6e} ({:?})",
-                input, expected, result_f64, duration
-            );
         }
     }
 }
