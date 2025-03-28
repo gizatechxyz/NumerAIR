@@ -96,14 +96,13 @@ impl Fixed {
         if self.0 <= 0 {
             return (Self(0), Self(0));
         }
-        // Use i128 for larger intermediate values to prevent overflow
+        // i128 for larger intermediate values to prevent overflow
         let self_i128 = self.0 as i128;
-        // Multiply self.0 by SCALE_FACTOR to move to the "squared" domain.
+        // Multiply by SCALE_FACTOR to move to the "squared" domain.
         let t = self_i128 * (1 << DEFAULT_SCALE as i128);
         
-        // Safety check for overflow
         if t > u64::MAX as i128 {
-            // For very large values, use an approximation
+            // For large values, approximate
             let approx_sqrt = (self.0 as f64).sqrt() * (Self::SCALE_FACTOR as f64).sqrt();
             let approx_sqrt_i64 = approx_sqrt as i64;
             return (Self(approx_sqrt_i64), Self(0));
@@ -112,7 +111,7 @@ impl Fixed {
         // Compute the integer square root of t.
         let y = int_sqrt(t as u64) as i64;
         
-        // Calculate the remainder using i128 to prevent overflow
+        // use i128
         let squared = (y as i128) * (y as i128);
         let remainder = t - squared;
         
@@ -135,12 +134,11 @@ pub fn int_sqrt(n: u64) -> u64 {
     // Newton's method iteration with overflow protection
     let mut prev_x = x;
     loop {
-        // Safely compute next approximation without overflow
         if x == 0 {
-            return 0; // Prevent division by zero
+            return 0; // don't burn CPU cycles
         }
         
-        // Compute next value carefully to avoid overflow
+        // Compute next value to avoid overflow
         let quotient = n / x;
         let sum = x.saturating_add(quotient); // Use saturating_add to handle potential overflow
         let next_x = sum / 2;
@@ -304,35 +302,50 @@ mod tests {
 
     #[test]
     fn test_sqrt() {
+        // For 12-bit fixed-point precision, we expect
+        // precision of about 2^-12 ≈ 0.000244
         let mut test_cases = vec![
-            (0.0, 0.0),
-            (-1.0, 0.0), // Negative input: sqrt should return 0
-            (1.0, 1.0),
-            (4.0, 2.0),
-            (9.0, 3.0),
-            (10.0, (10.0_f64).sqrt()),
-            (16.0, 4.0),
-            (25.0, 5.0),
-            (81.0, 9.0),
-            (100.0, 10.0),
-            (0.25, 0.5),
-            (0.0625, 0.25),
-            (0.01, 0.1),
-            (2.0, std::f64::consts::SQRT_2), // Irrational result
+            -1.0, // Negative input: sqrt should return 0
+            0.0,
+            1.0,
+            4.0,
+            9.0,
+            10.0,
+            16.0,
+            25.0,
+            81.0,
+            100.0,
+            0.25,
+            0.0625,
+            0.01,
+            5.0,
+            8.0,
+            12.0,
+            15.0,
+            20.0,
+            50.0,
+            10000.0,
+            1000000.0,
+            10000000000.0,
+            1e-10, // Small value
+            1e10, // Large value
+            0.001, // rest irrationals
+            0.5,
+            2.0,
+            3.0,
+            42.0, // Nod to Douglas Adams
         ];
 
         let mut rng = StdRng::seed_from_u64(42);
-        // Use a safer range for random values to avoid overflow
         for _ in 0..200 {
-            let value: f64 = rng.gen_range(0.01..100.0);
-            test_cases.push((value, value.sqrt()));
+            let value: f64 = rng.gen_range(0.01..50.0);
+            test_cases.push(value);
         }
 
-        for (input, expected) in test_cases {
+        for input in test_cases {
             let fixed_input = Fixed::from_f64(input);
 
             if input < 0.0 {
-                println!("Input: {:.6e} (negative)", input);
                 let (result, remainder) = fixed_input.sqrt();
                 assert_eq!(result.0, 0);
                 assert_eq!(remainder.0, 0);
@@ -341,9 +354,7 @@ mod tests {
 
             let (result, _) = fixed_input.sqrt();
             let result_f64 = result.to_f64();
-
-            println!("Input: {:.6e}, Expected:{}, Result: {:.6e}", input, expected, fixed_input.to_f64());
-            assert_near(result_f64, expected);
+            assert_near(result_f64, input.sqrt());
         }
     }
 }

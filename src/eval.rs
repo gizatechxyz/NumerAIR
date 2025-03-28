@@ -59,8 +59,8 @@ pub trait EvalFixedPoint: EvalAtRow {
     }
 
     fn eval_fixed_sqrt(&mut self, input: Self::F, out: Self::F, rem: Self::F) {
-        // Because 1.0 is stored as 4096 in the field,
-        // the correct invariant for a perfect square is:
+        // 1.0 is stored as 4096 in the field,
+        // the invariant for the square is:
         //     out^2 + rem = input * 4096
         self.add_constraint((out.clone() * out) + rem.clone() - (input * SCALE_FACTOR));
     }
@@ -178,19 +178,14 @@ mod tests {
         // Generate trace
         let mut trace_cols: Vec<Vec<BaseField>> =
             vec![Vec::new(); inputs.len() + expected_outputs.len()];
-        for _i in 0..size {
-            for (j, input) in inputs.iter().enumerate() {
-                println!();
-                let input_m31 = input.to_m31();
-                println!("Input: {:?}, to_m31: {}", input, input_m31);
-                println!();
-                trace_cols[j].push(input.to_m31());
+        for _ in 0..size {
+            for (i, input) in inputs.iter().enumerate() {
+                trace_cols[i].push(input.to_m31());
             }
-            for (j, output) in expected_outputs.iter().enumerate() {
-                trace_cols[inputs.len() + j].push(output.to_m31());
+            for (i, output) in expected_outputs.iter().enumerate() {
+                trace_cols[inputs.len() + i].push(output.to_m31());
             }
         }
-        println!("Trace cols: {:?}", trace_cols);
 
         let trace_evals = columns_to_evaluations(trace_cols.clone(), domain);
         let is_first = IsFirst::new(LOG_SIZE).gen_column_simd().to_cpu();
@@ -238,7 +233,6 @@ mod tests {
                 SecureField::zero(),
             );
         });
-        print!("{:?}", result);
         assert!(result.is_err());
     }
 
@@ -331,21 +325,18 @@ mod tests {
     #[test]
     fn test_eval_sqrt() {
         let test_cases = vec![
-            (1.0, 1.0, 0.0),
-            // (4.0, 4.0, 0.0),
-            // (9.0, 9.0, 0.0),
-            (2.0, 2.0_f64.sqrt(), 2.0),
-            // (0.5, 0.5_f64::sqrt(), 0.5),
-            (0.25, 0.25_f64.sqrt(), 0.25),
-            // (0.0, 0.0, 0.0),
+            1.0,
+            4.0,
+            9.0,
+            2.0,
+            0.5,
+            0.25,
+            0.0,
         ];
-        for (input, expected_out, expected_rem) in test_cases {
+        for input in test_cases {
             let fixed_input = Fixed::from_f64(input);
             let (sqrt_out, rem) = fixed_input.sqrt();
-            println!(
-                "Testing sqrt: input={:?}, out={:?}, rem={:?}, expected_out={:?}, expected_rem={:?}",
-                input, sqrt_out, rem, expected_out, Fixed::from_f64(expected_rem)
-            );
+
             test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem]);
         }
     }
