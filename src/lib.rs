@@ -83,38 +83,50 @@ impl Fixed {
         (Self(quotient), Self(remainder))
     }
 
-    /// Computes the square root in the fully scaled domain.
-    //
-    // Given that Fixed::0 = floor(real_value * SCALE_FACTOR),
-    // we want to compute `out` and `rem` such that:
-    //
-    //     out^2 + rem = input * SCALE_FACTOR
-    //
-    // where `out` is the fixed-point representation of sqrt(real_value)
-    // and 0 <= rem < SCALE_FACTOR.
+    /// Computes the fixed-point representation of the square root and its remainder.
+    ///
+    /// `self` represents `input_val * SCALE_FACTOR`, to compute
+    /// `out` and `rem`, i.e., `out` represents `sqrt(input_val) * SCALE_FACTOR`
+    /// and the following hold for their underlying integer values
+    /// (`input.0`, `out.0`, `rem.0`):
+    ///
+    /// `out.0^2 + rem.0 = input.0 * SCALE_FACTOR`
+    ///
+    /// where `out.0` is the integer square root of `(input.0 * SCALE_FACTOR)`.
+    /// The remainder `rem.0` is the difference `(input.0 * SCALE_FACTOR) - out.0^2`.
     pub fn sqrt(&self) -> (Self, Self) {
         if self.0 <= 0 {
             return (Self(0), Self(0));
         }
-        // i128 for larger intermediate values to prevent overflow
+        // Use i128 for intermediate calculations
         let self_i128 = self.0 as i128;
-        // Multiply by SCALE_FACTOR to move to the "squared" domain.
-        let t = self_i128 * (1 << DEFAULT_SCALE as i128);
-        
-        if t > u64::MAX as i128 {
-            // For large values, approximate
-            let approx_sqrt = (self.0 as f64).sqrt() * (Self::SCALE_FACTOR as f64).sqrt();
-            let approx_sqrt_i64 = approx_sqrt as i64;
-            return (Self(approx_sqrt_i64), Self(0));
-        }
-        
-        // Compute the integer square root of t.
+        let scale_factor_i128 = 1 << DEFAULT_SCALE as i128;
+        let t = self_i128 * scale_factor_i128;
+
+        // If `t` were to exceed `u64::MAX`, `int_sqrt(u64)` use approximation:
+        // ```rust
+        // if t > u64::MAX as i128 {
+        //     let approx_sqrt = (self.0 as f64).sqrt() * (Self::SCALE_FACTOR as f64).sqrt();
+        //     let approx_sqrt_i64 = approx_sqrt as i64;
+        //     // Return rem=0, also as an approximation.
+        //     return (Self(approx_sqrt_i64), Self(0));
+        // }
+        // ```
+        // I deem approximation is not needed for the following reasons:
+        // 1. Floating-point inaccuracies can break AIR constraints which require exact arithmetic.
+        // 2. Returning `rem = 0` is generally incorrect and fails the constraint check.
+        // This function now relies on the assumption that inputs are within a range
+        // The `assert!` below enforces this assumption during debug builds.
+        assert!(t <= u64::MAX as i128, "Input to sqrt too large for precise calculation");
+
+        // Calculate integer square root
         let y = int_sqrt(t as u64) as i64;
-        
-        // use i128
-        let squared = (y as i128) * (y as i128);
+
+        // Calculate precise remainder using i128
+        let y_i128 = y as i128;
+        let squared = y_i128 * y_i128;
         let remainder = t - squared;
-        
+
         (Self(y), Self(remainder as i64))
     }
 }

@@ -58,10 +58,18 @@ pub trait EvalFixedPoint: EvalAtRow {
         self.eval_fixed_div_rem(scale_squared, value, reciprocal, remainder);
     }
 
+    /// Adds constraints to verify `out^2 + rem = input * SCALE_FACTOR`.
+    ///
+    /// This enforces the invariant for sqrt operations in fixed-point arithmetic,
+    /// between a scaled input, its scaled square root (`out`), and the remainder (`rem`).
+    ///
+    /// Note: Assumes `input` represents a non-negative value.
+    /// # Parameters
+    /// - `input`: The trace column value representing the scaled input `input.0`.
+    /// - `out`: The trace column value of the scaled square root `out.0`.
+    /// - `rem`: The trace column value of the remainder `rem.0`.
     fn eval_fixed_sqrt(&mut self, input: Self::F, out: Self::F, rem: Self::F) {
-        // 1.0 is stored as 4096 in the field,
-        // the invariant for the square is:
-        //     out^2 + rem = input * 4096
+        // Enforce the constraint: out^2 + rem = input * SCALE_FACTOR
         self.add_constraint((out.clone() * out) + rem.clone() - (input * SCALE_FACTOR));
     }
 }
@@ -337,6 +345,14 @@ mod tests {
             let fixed_input = Fixed::from_f64(input);
             let (sqrt_out, rem) = fixed_input.sqrt();
 
+            test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem]);
+        }
+
+        let mut rng = StdRng::seed_from_u64(43);
+        for _ in 0..50 {
+            let input_val: f64 = rng.gen_range(0.0..100.0);
+            let fixed_input = Fixed::from_f64(input_val);
+            let (sqrt_out, rem) = fixed_input.sqrt();
             test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem]);
         }
     }
