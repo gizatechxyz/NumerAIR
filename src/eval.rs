@@ -1,5 +1,6 @@
 use num_traits::One;
 use stwo_prover::constraint_framework::EvalAtRow;
+use crate::SCALE_FACTOR;
 
 /// Extension trait for EvalAtRow to support fixed-point arithmetic constraint evaluation
 pub trait EvalFixedPoint: EvalAtRow {
@@ -56,6 +57,21 @@ pub trait EvalFixedPoint: EvalAtRow {
         let scale_squared = self.add_intermediate(scale.clone() * scale);
         self.eval_fixed_div_rem(scale_squared, value, reciprocal, remainder);
     }
+
+    /// Adds constraints to verify `out^2 + rem = input * SCALE_FACTOR`.
+    ///
+    /// This enforces the invariant for sqrt operations in fixed-point arithmetic,
+    /// between a scaled input, its scaled square root (`out`), and the remainder (`rem`).
+    ///
+    /// Note: Assumes `input` represents a non-negative value.
+    /// # Parameters
+    /// - `input`: The trace column value representing the scaled input `input.0`.
+    /// - `out`: The trace column value of the scaled square root `out.0`.
+    /// - `rem`: The trace column value of the remainder `rem.0`.
+    fn eval_fixed_sqrt(&mut self, input: Self::F, out: Self::F, rem: Self::F) {
+        // Enforce the constraint: out^2 + rem = input * SCALE_FACTOR
+        self.add_constraint((out.clone() * out) + rem.clone() - (input * SCALE_FACTOR));
+    }
 }
 
 // Blanket implementation for any type that implements EvalAtRow
@@ -97,6 +113,7 @@ mod tests {
         Sub,
         Mul,
         Recip,
+        Sqrt,
     }
 
     impl FrameworkEval for TestEval {
@@ -134,6 +151,12 @@ mod tests {
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
                     eval.eval_fixed_recip(input, SCALE_FACTOR.into(), out, rem)
+                }
+                Op::Sqrt => {
+                    let input = eval.next_trace_mask();
+                    let out = eval.next_trace_mask();
+                    let rem = eval.next_trace_mask();
+                    eval.eval_fixed_sqrt(input, out, rem)
                 }
             }
             eval
@@ -304,6 +327,33 @@ mod tests {
             let (expected, rem) = fixed_input.recip();
 
             test_op(Op::Recip, vec![fixed_input], vec![expected, rem]);
+        }
+    }
+
+    #[test]
+    fn test_eval_sqrt() {
+        let test_cases = vec![
+            1.0,
+            4.0,
+            9.0,
+            2.0,
+            0.5,
+            0.25,
+            0.0,
+        ];
+        for input in test_cases {
+            let fixed_input = Fixed::from_f64(input);
+            let (sqrt_out, rem) = fixed_input.sqrt();
+
+            test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem]);
+        }
+
+        let mut rng = StdRng::seed_from_u64(43);
+        for _ in 0..50 {
+            let input_val: f64 = rng.gen_range(0.0..100.0);
+            let fixed_input = Fixed::from_f64(input_val);
+            let (sqrt_out, rem) = fixed_input.sqrt();
+            test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem]);
         }
     }
 }
