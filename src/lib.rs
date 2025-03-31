@@ -82,6 +82,87 @@ impl Fixed {
 
         (Self(quotient), Self(remainder))
     }
+
+    /// Computes the fixed-point representation of the square root and its remainder.
+    ///
+    /// `self` represents `input_val * SCALE_FACTOR`, to compute
+    /// `out` and `rem`, i.e., `out` represents `sqrt(input_val) * SCALE_FACTOR`
+    /// and the following hold for their underlying integer values
+    /// (`input.0`, `out.0`, `rem.0`):
+    ///
+    /// `out.0^2 + rem.0 = input.0 * SCALE_FACTOR`
+    ///
+    /// where `out.0` is the integer square root of `(input.0 * SCALE_FACTOR)`.
+    /// The remainder `rem.0` is the difference `(input.0 * SCALE_FACTOR) - out.0^2`.
+    pub fn sqrt(&self) -> (Self, Self) {
+        if self.0 <= 0 {
+            return (Self(0), Self(0));
+        }
+        // Use i128 for intermediate calculations
+        let self_i128 = self.0 as i128;
+        let scale_factor_i128 = 1 << DEFAULT_SCALE as i128;
+        let t = self_i128 * scale_factor_i128;
+
+        // If `t` were to exceed `u64::MAX`, `int_sqrt(u64)` use approximation:
+        // ```rust
+        // if t > u64::MAX as i128 {
+        //     let approx_sqrt = (self.0 as f64).sqrt() * (Self::SCALE_FACTOR as f64).sqrt();
+        //     let approx_sqrt_i64 = approx_sqrt as i64;
+        //     // Return rem=0, also as an approximation.
+        //     return (Self(approx_sqrt_i64), Self(0));
+        // }
+        // ```
+        // I deem approximation is not needed for the following reasons:
+        // 1. Floating-point inaccuracies can break AIR constraints which require exact arithmetic.
+        // 2. Returning `rem = 0` is generally incorrect and fails the constraint check.
+        // This function now relies on the assumption that inputs are within a range
+        // The `assert!` below enforces this assumption during debug builds.
+        assert!(t <= u64::MAX as i128, "Input to sqrt too large for precise calculation");
+
+        // Calculate integer square root
+        let y = int_sqrt(t as u64) as i64;
+
+        // Calculate precise remainder using i128
+        let y_i128 = y as i128;
+        let squared = y_i128 * y_i128;
+        let remainder = t - squared;
+
+        (Self(y), Self(remainder as i64))
+    }
+}
+
+/// Returns the floor of the square root of `n`.
+pub fn int_sqrt(n: u64) -> u64 {
+    if n < 2 {
+        return n;
+    }
+    // Initial guess - use a safer initial guess for large values
+    let mut x = if n > u32::MAX as u64 {
+        (n >> 16).min(u32::MAX as u64)  // Safer initial guess for very large values
+    } else {
+        n / 2
+    };
+    
+    // Newton's method iteration with overflow protection
+    let mut prev_x = x;
+    loop {
+        if x == 0 {
+            return 0; // don't burn CPU cycles
+        }
+        
+        // Compute next value to avoid overflow
+        let quotient = n / x;
+        let sum = x.saturating_add(quotient); // Use saturating_add to handle potential overflow
+        let next_x = sum / 2;
+        
+        // Check for convergence or oscillation
+        if next_x == x || next_x == prev_x {
+            return next_x;
+        }
+        
+        prev_x = x;
+        x = next_x;
+    }
 }
 
 impl Add for Fixed {
@@ -228,6 +309,64 @@ mod tests {
             let fixed_a = Fixed::from_f64(a);
             let (recip, _) = fixed_a.recip();
             assert_near(recip.to_f64(), expected);
+        }
+    }
+
+    #[test]
+    fn test_sqrt() {
+        // For 12-bit fixed-point precision, we expect
+        // precision of about 2^-12 ≈ 0.000244
+        let mut test_cases = vec![
+            -1.0, // Negative input: sqrt should return 0
+            0.0,
+            1.0,
+            4.0,
+            9.0,
+            10.0,
+            16.0,
+            25.0,
+            81.0,
+            100.0,
+            0.25,
+            0.0625,
+            0.01,
+            5.0,
+            8.0,
+            12.0,
+            15.0,
+            20.0,
+            50.0,
+            10000.0,
+            1000000.0,
+            10000000000.0,
+            1e-10, // Small value
+            1e10, // Large value
+            0.001, // rest irrationals
+            0.5,
+            2.0,
+            3.0,
+            42.0, // Nod to Douglas Adams
+        ];
+
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..200 {
+            let value: f64 = rng.gen_range(0.01..50.0);
+            test_cases.push(value);
+        }
+
+        for input in test_cases {
+            let fixed_input = Fixed::from_f64(input);
+
+            if input < 0.0 {
+                let (result, remainder) = fixed_input.sqrt();
+                assert_eq!(result.0, 0);
+                assert_eq!(remainder.0, 0);
+                continue;
+            }
+
+            let (result, _) = fixed_input.sqrt();
+            let result_f64 = result.to_f64();
+            assert_near(result_f64, input.sqrt());
         }
     }
 }
