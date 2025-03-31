@@ -53,11 +53,6 @@ pub trait EvalFixedPoint: EvalAtRow {
         reciprocal: Self::F,
         remainder: Self::F,
     ) {
-        println!("value: {:?}", value);
-        println!("scale: {:?}", scale);
-        println!("reciprocal: {:?}", reciprocal);
-        println!("remainder: {:?}", remainder);
-
         let scale_squared = self.add_intermediate(scale.clone() * scale);
         self.eval_fixed_div_rem(scale_squared, value, reciprocal, remainder);
     }
