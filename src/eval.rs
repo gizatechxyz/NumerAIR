@@ -53,6 +53,11 @@ pub trait EvalFixedPoint: EvalAtRow {
         reciprocal: Self::F,
         remainder: Self::F,
     ) {
+        println!("value: {:?}", value);
+        println!("scale: {:?}", scale);
+        println!("reciprocal: {:?}", reciprocal);
+        println!("remainder: {:?}", remainder);
+
         let scale_squared = self.add_intermediate(scale.clone() * scale);
         self.eval_fixed_div_rem(scale_squared, value, reciprocal, remainder);
     }
@@ -69,7 +74,7 @@ mod tests {
     use stwo_prover::{
         constraint_framework::{self, preprocessed_columns::IsFirst, FrameworkEval},
         core::{
-            backend::{Col, Column, CpuBackend},
+            backend::{simd::SimdBackend, Col, Column},
             fields::{
                 m31::{BaseField, P},
                 qm31::SecureField,
@@ -143,10 +148,10 @@ mod tests {
     fn columns_to_evaluations(
         cols: Vec<Vec<BaseField>>,
         domain: CanonicCoset,
-    ) -> Vec<CircleEvaluation<CpuBackend, BaseField, BitReversedOrder>> {
+    ) -> Vec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>> {
         cols.into_iter()
             .map(|col| {
-                let mut trace_col = Col::<CpuBackend, BaseField>::zeros(1 << domain.log_size());
+                let mut trace_col = Col::<SimdBackend, BaseField>::zeros(1 << domain.log_size());
                 for (i, val) in col.iter().enumerate() {
                     trace_col.set(i, *val);
                 }
@@ -173,7 +178,7 @@ mod tests {
         }
 
         let trace_evals = columns_to_evaluations(trace_cols.clone(), domain);
-        let is_first = IsFirst::new(LOG_SIZE).gen_column_simd().to_cpu();
+        let is_first = IsFirst::new(LOG_SIZE).gen_column_simd();
         let trace = TreeVec::new(vec![vec![is_first], trace_evals, Vec::new()]);
 
         let trace_polys = trace.map_cols(|c| c.interpolate());
@@ -202,7 +207,7 @@ mod tests {
         }
 
         let invalid_trace_evals = columns_to_evaluations(invalid_trace_cols, domain);
-        let is_first = IsFirst::new(LOG_SIZE).gen_column_simd().to_cpu();
+        let is_first = IsFirst::new(LOG_SIZE).gen_column_simd();
         let invalid_trace = TreeVec::new(vec![vec![is_first], invalid_trace_evals, Vec::new()]);
 
         let invalid_trace_polys = invalid_trace.map_cols(|c| c.interpolate());
