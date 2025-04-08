@@ -59,6 +59,7 @@ Contributions are welcome! Please submit pull requests with:
   <tbody>
     <tr>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/raphaelDkhn"><img src="https://avatars.githubusercontent.com/u/113879115?v=4?s=100" width="100px;" alt="raphaelDkhn"/><br /><sub><b>raphaelDkhn</b></sub></a><br /><a href="https://github.com/gizatechxyz/NumerAIR/commits?author=raphaelDkhn" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/blewater"><img src="https://avatars.githubusercontent.com/u/2580304?v=4?s=100" width="100px;" alt="Mario Karagiorgas"/><br /><sub><b>Mario Karagiorgas</b></sub></a><br /><a href="https://github.com/gizatechxyz/NumerAIR/commits?author=blewater" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>
