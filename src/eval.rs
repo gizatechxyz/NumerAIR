@@ -155,7 +155,12 @@ mod tests {
             .collect()
     }
 
-    fn test_op(op: Op, inputs: Vec<Fixed>, expected_outputs: Vec<Fixed>) {
+    fn test_op(
+        op: Op,
+        inputs: Vec<Fixed>,
+        expected_outputs: Vec<Fixed>,
+        tamper_col_idx: usize, // The column to tamper
+    ) {
         const LOG_SIZE: u32 = 4;
         let domain = CanonicCoset::new(LOG_SIZE);
         let size = 1 << LOG_SIZE;
@@ -195,9 +200,9 @@ mod tests {
 
         // Test invalid trace - modify the output column
         let mut invalid_trace_cols = trace_cols;
-        if let Some(last_col) = invalid_trace_cols.last_mut() {
-            for val in last_col.iter_mut() {
-                val.0 = (val.0 + 1) % P;
+        if let Some(col) = invalid_trace_cols.get_mut(tamper_col_idx) {
+            for val in col.iter_mut() {
+                val.0 = (val.0 + SCALE_FACTOR.0) % P;
             }
         }
 
@@ -228,7 +233,7 @@ mod tests {
             let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
             let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
 
-            test_op(Op::Add, vec![a, b], vec![a + b]);
+            test_op(Op::Add, vec![a, b], vec![a + b], 2);
         }
     }
 
@@ -238,7 +243,7 @@ mod tests {
         for _ in 0..100 {
             let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
             let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            test_op(Op::Sub, vec![a, b], vec![a - b]);
+            test_op(Op::Sub, vec![a, b], vec![a - b], 2);
         }
     }
 
@@ -252,7 +257,7 @@ mod tests {
             let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
             let (expected, rem) = a * b;
 
-            test_op(Op::Mul, vec![a, b], vec![expected, rem]);
+            test_op(Op::Mul, vec![a, b], vec![expected, rem], 2);
         }
 
         // Test special cases
@@ -273,7 +278,7 @@ mod tests {
             let fixed_b = Fixed::from_f64(b);
             let (expected, rem) = fixed_a * fixed_b;
 
-            test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
+            test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem], 2);
         }
     }
 
@@ -286,7 +291,7 @@ mod tests {
             let input = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
             let (expected, rem) = input.recip();
 
-            test_op(Op::Recip, vec![input], vec![expected, rem]);
+            test_op(Op::Recip, vec![input], vec![expected, rem], 2);
         }
 
         // Test special cases
@@ -303,7 +308,7 @@ mod tests {
             let fixed_input = Fixed::from_f64(input);
             let (expected, rem) = fixed_input.recip();
 
-            test_op(Op::Recip, vec![fixed_input], vec![expected, rem]);
+            test_op(Op::Recip, vec![fixed_input], vec![expected, rem], 1);
         }
     }
 }
