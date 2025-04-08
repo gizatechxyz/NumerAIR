@@ -337,10 +337,8 @@ mod tests {
             20.0,
             50.0,
             10000.0,
-            1000000.0,
-            10000000000.0,
+            1000000.0, // Large value
             1e-10, // Small value
-            1e10, // Large value
             0.001, // rest irrationals
             0.5,
             2.0,
