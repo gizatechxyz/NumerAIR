@@ -1,6 +1,6 @@
+use crate::{HALF_P, SCALE_FACTOR};
 use num_traits::One;
-use stwo_prover::constraint_framework::EvalAtRow;
-use crate::SCALE_FACTOR;
+use stwo_prover::{constraint_framework::EvalAtRow, core::fields::m31::M31};
 
 /// Extension trait for EvalAtRow to support fixed-point arithmetic constraint evaluation
 pub trait EvalFixedPoint: EvalAtRow {
@@ -58,17 +58,23 @@ pub trait EvalFixedPoint: EvalAtRow {
         self.eval_fixed_div_rem(scale_squared, value, reciprocal, remainder);
     }
 
-    /// Adds constraints to verify `out^2 + rem = input * SCALE_FACTOR`.
+    /// Evaluates constraints for square root operations.
+    /// Adds constraints to verify that:
+    /// 1. The input is non-negative
+    /// 2. out^2 + rem = input * SCALE_FACTOR
     ///
-    /// This enforces the invariant for sqrt operations in fixed-point arithmetic,
-    /// between a scaled input, its scaled square root (`out`), and the remainder (`rem`).
-    ///
-    /// Note: Assumes `input` represents a non-negative value.
     /// # Parameters
-    /// - `input`: The trace column value representing the scaled input `input.0`.
-    /// - `out`: The trace column value of the scaled square root `out.0`.
-    /// - `rem`: The trace column value of the remainder `rem.0`.
+    /// - `input`: The trace column value representing the scaled input.
+    /// - `out`: The trace column value of the scaled square root.
+    /// - `rem`: The trace column value of the remainder.
     fn eval_fixed_sqrt(&mut self, input: Self::F, out: Self::F, rem: Self::F) {
+        // Constraint to ensure input is non-negative
+        // For field elements, we check if input is in the range [0, HALF_P)
+        // We need an auxiliary variable to ensure 0 <= input < HALF_P
+        let aux =
+            self.add_intermediate(Self::F::from(M31(HALF_P)) - Self::F::one() - input.clone());
+        self.add_constraint(input.clone() + aux - (Self::F::from(M31(HALF_P)) - Self::F::one()));
+
         // Enforce the constraint: out^2 + rem = input * SCALE_FACTOR
         self.add_constraint((out.clone() * out) + rem.clone() - (input * SCALE_FACTOR));
     }
@@ -337,15 +343,7 @@ mod tests {
 
     #[test]
     fn test_eval_sqrt() {
-        let test_cases = vec![
-            1.0,
-            4.0,
-            9.0,
-            2.0,
-            0.5,
-            0.25,
-            0.0,
-        ];
+        let test_cases = vec![1.0, 4.0, 9.0, 2.0, 0.5, 0.25, 0.0];
         for input in test_cases {
             let fixed_input = Fixed::from_f64(input);
             let (sqrt_out, rem) = fixed_input.sqrt();

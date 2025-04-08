@@ -5,7 +5,7 @@ use stwo_prover::core::fields::m31::{M31, P};
 pub mod eval;
 
 // Number of bits used for decimal precision.
-pub const DEFAULT_SCALE: u32 = 20;
+pub const DEFAULT_SCALE: u32 = 12;
 // Scale factor = 2^DEFAULT_SCALE, used for fixed-point arithmetic.
 pub const SCALE_FACTOR: M31 = M31::from_u32_unchecked(1 << DEFAULT_SCALE);
 // Half the prime modulus.
@@ -95,71 +95,56 @@ impl Fixed {
     /// where `out.0` is the integer square root of `(input.0 * SCALE_FACTOR)`.
     /// The remainder `rem.0` is the difference `(input.0 * SCALE_FACTOR) - out.0^2`.
     pub fn sqrt(&self) -> (Self, Self) {
-        if self.0 <= 0 {
+        // Panic for negative inputs
+        assert!(self.0 >= 0, "Cannot compute square root of negative number");
+
+        // Special case: zero input
+        if self.0 == 0 {
             return (Self(0), Self(0));
         }
-        // Use i128 for intermediate calculations
-        let self_i128 = self.0 as i128;
-        let scale_factor_i128 = 1 << DEFAULT_SCALE as i128;
-        let t = self_i128 * scale_factor_i128;
 
-        // If `t` were to exceed `u64::MAX`, `int_sqrt(u64)` use approximation:
-        // ```rust
-        // if t > u64::MAX as i128 {
-        //     let approx_sqrt = (self.0 as f64).sqrt() * (Self::SCALE_FACTOR as f64).sqrt();
-        //     let approx_sqrt_i64 = approx_sqrt as i64;
-        //     // Return rem=0, also as an approximation.
-        //     return (Self(approx_sqrt_i64), Self(0));
-        // }
-        // ```
-        // I deem approximation is not needed for the following reasons:
-        // 1. Floating-point inaccuracies can break AIR constraints which require exact arithmetic.
-        // 2. Returning `rem = 0` is generally incorrect and fails the constraint check.
-        // This function now relies on the assumption that inputs are within a range
-        // The `assert!` below enforces this assumption during debug builds.
-        assert!(t <= u64::MAX as i128, "Input to sqrt too large for precise calculation");
+        // Calculate value to compute sqrt of: self * SCALE_FACTOR
+        let input_scaled = (self.0 as u64) << DEFAULT_SCALE;
 
-        // Calculate integer square root
-        let y = int_sqrt(t as u64) as i64;
+        // Compute integer square root
+        let sqrt_val = int_sqrt(input_scaled);
 
-        // Calculate precise remainder using i128
-        let y_i128 = y as i128;
-        let squared = y_i128 * y_i128;
-        let remainder = t - squared;
+        // Calculate remainder (input_scaled - sqrt_val^2)
+        let remainder = input_scaled - sqrt_val * sqrt_val;
 
-        (Self(y), Self(remainder as i64))
+        (Self(sqrt_val as i64), Self(remainder as i64))
     }
 }
 
 /// Returns the floor of the square root of `n`.
+#[inline]
 pub fn int_sqrt(n: u64) -> u64 {
-    if n < 2 {
+    if n <= 1 {
         return n;
     }
-    // Initial guess - use a safer initial guess for large values
-    let mut x = if n > u32::MAX as u64 {
-        (n >> 16).min(u32::MAX as u64)  // Safer initial guess for very large values
-    } else {
-        n / 2
-    };
-    
-    // Newton's method iteration with overflow protection
+
+    // Initial guess
+    let bits = 64 - n.leading_zeros();
+    let mut x = n >> (bits / 2);
+
+    // Ensure x is not zero (which would cause division by zero)
+    if x == 0 {
+        x = 1;
+    }
+
+    // Newton's method with careful convergence checking
     let mut prev_x = x;
     loop {
-        if x == 0 {
-            return 0; // don't burn CPU cycles
-        }
-        
-        // Compute next value to avoid overflow
+        // Compute next iteration
         let quotient = n / x;
-        let sum = x.saturating_add(quotient); // Use saturating_add to handle potential overflow
-        let next_x = sum / 2;
-        
+        let next_x = (x + quotient) / 2; // We can use regular division here since x + quotient ≤ n + 1
+
         // Check for convergence or oscillation
         if next_x == x || next_x == prev_x {
             return next_x;
         }
-        
+
+        // Update for next iteration
         prev_x = x;
         x = next_x;
     }
@@ -314,36 +299,12 @@ mod tests {
 
     #[test]
     fn test_sqrt() {
-        // For 12-bit fixed-point precision, we expect
-        // precision of about 2^-12 ≈ 0.000244
         let mut test_cases = vec![
-            -1.0, // Negative input: sqrt should return 0
-            0.0,
-            1.0,
-            4.0,
-            9.0,
-            10.0,
-            16.0,
-            25.0,
-            81.0,
-            100.0,
-            0.25,
-            0.0625,
-            0.01,
-            5.0,
-            8.0,
-            12.0,
-            15.0,
-            20.0,
-            50.0,
-            10000.0,
-            1000000.0, // Large value
-            1e-10, // Small value
-            0.001, // rest irrationals
-            0.5,
-            2.0,
-            3.0,
-            42.0, // Nod to Douglas Adams
+            0.0, 1.0, 4.0, 9.0, 10.0, 16.0, 25.0, 81.0, 100.0, 0.25, 0.0625, 0.01, 5.0, 8.0, 12.0,
+            15.0, 20.0, 50.0, 10000.0, 1000000.0, // Large value
+            1e-10,     // Small value
+            0.001,     // rest irrationals
+            0.5, 2.0, 3.0, 42.0, // Nod to Douglas Adams
         ];
 
         let mut rng = StdRng::seed_from_u64(42);
