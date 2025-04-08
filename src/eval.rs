@@ -350,7 +350,7 @@ mod tests {
             let fixed_input = Fixed::from_f64(input);
             let (sqrt_out, rem) = fixed_input.sqrt();
 
-            test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem]);
+            test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem], 1);
         }
 
         let mut rng = StdRng::seed_from_u64(43);
@@ -358,7 +358,7 @@ mod tests {
             let input_val: f64 = rng.gen_range(0.0..100.0);
             let fixed_input = Fixed::from_f64(input_val);
             let (sqrt_out, rem) = fixed_input.sqrt();
-            test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem]);
+            test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem], 1);
         }
     }
 }
