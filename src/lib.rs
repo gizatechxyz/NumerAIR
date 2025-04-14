@@ -181,15 +181,6 @@ impl Mul for Fixed {
     }
 }
 
-impl Div for Fixed {
-    type Output = Self;
-
-    #[inline]
-    fn div(self, rhs: Self) -> Self::Output {
-        Self((self.0 << DEFAULT_SCALE) / rhs.0)
-    }
-}
-
 impl Rem for Fixed {
     type Output = Self;
 
