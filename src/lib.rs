@@ -67,22 +67,89 @@ impl Fixed {
         }
     }
 
+    /// Computes the reciprocal (1/x) of a fixed-point number
+    ///
+    /// Returns a tuple of (quotient, remainder) where:
+    /// - quotient is the fixed-point representation of 1/x
+    /// - remainder is the remainder after division
     #[inline]
-    /// Division with remainder for constraints
-    pub fn div_rem(self, rhs: Self) -> (Self, Self) {
-        assert!(rhs.0 != 0, "Division by zero");
+    pub fn recip(self) -> (Self, Self) {
+        assert!(self.0 != 0, "Division by zero");
 
-        // Compute quotient
-        let quotient = (self.0 << DEFAULT_SCALE) / rhs.0;
-
-        // Compute remainder from quotient
-        let remainder = self.0 - ((quotient * rhs.0) >> DEFAULT_SCALE);
+        let scale_squared = Self::SCALE_FACTOR * Self::SCALE_FACTOR;
+        let quotient = scale_squared / self.0;
+        let remainder = scale_squared % self.0;
 
         (Self(quotient), Self(remainder))
     }
+
+    /// Computes the fixed-point representation of the square root and its remainder.
+    ///
+    /// `self` represents `input_val * SCALE_FACTOR`, to compute
+    /// `out` and `rem`, i.e., `out` represents `sqrt(input_val) * SCALE_FACTOR`
+    /// and the following hold for their underlying integer values
+    /// (`input.0`, `out.0`, `rem.0`):
+    ///
+    /// `out.0^2 + rem.0 = input.0 * SCALE_FACTOR`
+    ///
+    /// where `out.0` is the integer square root of `(input.0 * SCALE_FACTOR)`.
+    /// The remainder `rem.0` is the difference `(input.0 * SCALE_FACTOR) - out.0^2`.
+    pub fn sqrt(&self) -> (Self, Self) {
+        // Panic for negative inputs
+        assert!(self.0 >= 0, "Cannot compute square root of negative number");
+
+        // Special case: zero input
+        if self.0 == 0 {
+            return (Self(0), Self(0));
+        }
+
+        // Calculate value to compute sqrt of: self * SCALE_FACTOR
+        let input_scaled = (self.0 as u64) << DEFAULT_SCALE;
+
+        // Compute integer square root
+        let sqrt_val = int_sqrt(input_scaled);
+
+        // Calculate remainder (input_scaled - sqrt_val^2)
+        let remainder = input_scaled - sqrt_val * sqrt_val;
+
+        (Self(sqrt_val as i64), Self(remainder as i64))
+    }
 }
 
-// Optimized arithmetic implementations
+/// Returns the floor of the square root of `n`.
+#[inline]
+pub fn int_sqrt(n: u64) -> u64 {
+    if n <= 1 {
+        return n;
+    }
+
+    // Initial guess
+    let bits = 64 - n.leading_zeros();
+    let mut x = n >> (bits / 2);
+
+    // Ensure x is not zero (which would cause division by zero)
+    if x == 0 {
+        x = 1;
+    }
+
+    // Newton's method with careful convergence checking
+    let mut prev_x = x;
+    loop {
+        // Compute next iteration
+        let quotient = n / x;
+        let next_x = (x + quotient) / 2; // We can use regular division here since x + quotient ≤ n + 1
+
+        // Check for convergence or oscillation
+        if next_x == x || next_x == prev_x {
+            return next_x;
+        }
+
+        // Update for next iteration
+        prev_x = x;
+        x = next_x;
+    }
+}
+
 impl Add for Fixed {
     type Output = Self;
 
@@ -101,7 +168,6 @@ impl Sub for Fixed {
     }
 }
 
-/// Multiply with remainder for constraints - optimized
 impl Mul for Fixed {
     type Output = (Self, Self);
 
@@ -216,41 +282,68 @@ mod tests {
     }
 
     #[test]
-    fn test_div() {
+    fn test_recip() {
         let mut rng = StdRng::seed_from_u64(42);
 
-        for _ in 0..5 {
+        for _ in 0..100 {
             let a = (rng.gen::<f64>() - 0.5) * 10.0;
-            let b = (rng.gen::<f64>() - 0.5) * 10.0;
+            if a.abs() < 0.1 {
+                continue;
+            }
 
-            let fa = Fixed::from_f64(a);
-            let fb = Fixed::from_f64(b);
+            let fixed_a = Fixed::from_f64(a);
+            let (recip, _) = fixed_a.recip();
+            let expected = 1.0 / a;
 
-            let result = (fa / fb).to_f64();
-            let expected = a / b;
+            assert_near(recip.to_f64(), expected);
+        }
 
-            assert_near(result, expected);
+        // Test specific cases
+        let test_cases = vec![
+            (1.0, 1.0),   // Reciprocal of 1 is 1
+            (2.0, 0.5),   // Reciprocal of 2 is 0.5
+            (0.5, 2.0),   // Reciprocal of 0.5 is 2
+            (4.0, 0.25),  // Reciprocal of 4 is 0.25
+            (-1.0, -1.0), // Reciprocal of -1 is -1
+            (-2.0, -0.5), // Reciprocal of -2 is -0.5
+        ];
+
+        for (a, expected) in test_cases {
+            let fixed_a = Fixed::from_f64(a);
+            let (recip, _) = fixed_a.recip();
+            assert_near(recip.to_f64(), expected);
         }
     }
 
     #[test]
-    fn test_div_edge_cases() {
-        // Test specific cases
-        let test_cases = vec![
-            (3.5, 2.0, 1.75),   // Simple positive division
-            (-3.5, 2.0, -1.75), // Negative numerator
-            (3.5, -2.0, -1.75), // Negative denominator
-            (-3.5, -2.0, 1.75), // Both negative
-            (1.0, 2.0, 0.5),    // Fraction less than 1
-            (0.0, 2.0, 0.0),    // Zero numerator
-            (1.0, 0.5, 2.0),    // Denominator less than 1
+    fn test_sqrt() {
+        let mut test_cases = vec![
+            0.0, 1.0, 4.0, 9.0, 10.0, 16.0, 25.0, 81.0, 100.0, 0.25, 0.0625, 0.01, 5.0, 8.0, 12.0,
+            15.0, 20.0, 50.0, 10000.0, 1000000.0, // Large value
+            1e-10,     // Small value
+            0.001,     // rest irrationals
+            0.5, 2.0, 3.0, 42.0, // Nod to Douglas Adams
         ];
 
-        for (a, b, expected) in test_cases {
-            let fa = Fixed::from_f64(a);
-            let fb = Fixed::from_f64(b);
-            let result = (fa / fb).to_f64();
-            assert_near(result, expected);
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..200 {
+            let value: f64 = rng.gen_range(0.01..50.0);
+            test_cases.push(value);
+        }
+
+        for input in test_cases {
+            let fixed_input = Fixed::from_f64(input);
+
+            if input < 0.0 {
+                let (result, remainder) = fixed_input.sqrt();
+                assert_eq!(result.0, 0);
+                assert_eq!(remainder.0, 0);
+                continue;
+            }
+
+            let (result, _) = fixed_input.sqrt();
+            let result_f64 = result.to_f64();
+            assert_near(result_f64, input.sqrt());
         }
     }
 

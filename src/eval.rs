@@ -1,51 +1,82 @@
+use crate::{HALF_P, SCALE_FACTOR};
 use num_traits::One;
-use stwo_prover::constraint_framework::EvalAtRow;
+use stwo_prover::{constraint_framework::EvalAtRow, core::fields::m31::M31};
 
 /// Extension trait for EvalAtRow to support fixed-point arithmetic constraint evaluation
 pub trait EvalFixedPoint: EvalAtRow {
-    /// Evaluates addition constraints for fixed point numbers.
-    fn eval_fixed_add(&mut self, lhs: Self::F, rhs: Self::F, out: Self::F) {
-        self.add_constraint(out - (lhs + rhs));
+    /// Evaluates addition constraints for fixed-point numbers.
+    fn eval_fixed_add(&mut self, a: Self::F, b: Self::F, sum: Self::F) {
+        self.add_constraint(sum - (a + b));
     }
 
-    /// Evaluates subtraction constraints for fixed point numbers.
-    fn eval_fixed_sub(&mut self, lhs: Self::F, rhs: Self::F, out: Self::F) {
-        self.add_constraint(out - (lhs - rhs));
+    /// Evaluates subtraction constraints for fixed-point numbers.
+    fn eval_fixed_sub(&mut self, a: Self::F, b: Self::F, diff: Self::F) {
+        self.add_constraint(diff - (a - b));
     }
 
-    /// Evaluates multiplication constraints for fixed-point numbers
+    /// Evaluates multiplication constraints for fixed-point numbers.
     fn eval_fixed_mul(
         &mut self,
-        lhs: Self::F,
-        rhs: Self::F,
+        a: Self::F,
+        b: Self::F,
         scale: Self::F,
-        out: Self::F,
-        rem: Self::F,
+        quotient: Self::F,
+        remainder: Self::F,
     ) {
-        let prod = self.add_intermediate(lhs * rhs);
-
-        // Constrain the division by scale factor
-        // out = prod / scale (quotient)
-        // rem = prod % scale (remainder)
-        self.eval_fixed_div_rem(prod, scale, out, rem);
+        let product = self.add_intermediate(a * b);
+        self.eval_fixed_div_rem(product, scale, quotient, remainder);
     }
 
-    /// Evaluates constraints for signed division with remainder
-    /// Constrains: value = q * div + r where
-    /// - q is the quotient
-    /// - r is the remainder
-    /// - 0 <= r < |div|
-    /// - q is rounded toward negative infinity
-    fn eval_fixed_div_rem(&mut self, value: Self::F, div: Self::F, q: Self::F, r: Self::F) {
-        // Core relationship: value = q * div + r
-        self.add_constraint(value - (q * div.clone() + r.clone()));
+    /// Evaluates constraints for signed division with remainder.
+    /// Constrains: dividend = quotient * divisor + remainder, where:
+    /// - quotient is rounded toward negative infinity,
+    /// - 0 <= remainder < |divisor|.
+    fn eval_fixed_div_rem(
+        &mut self,
+        dividend: Self::F,
+        divisor: Self::F,
+        quotient: Self::F,
+        remainder: Self::F,
+    ) {
+        self.add_constraint(dividend - (quotient * divisor.clone() + remainder.clone()));
 
-        // Compute an auxiliary variable to constrain the inequality r < div
-        let aux = self.add_intermediate(div.clone() - Self::F::one() - r.clone());
+        // Auxiliary variable to enforce remainder < divisor:
+        let aux = self.add_intermediate(divisor.clone() - Self::F::one() - remainder.clone());
+        self.add_constraint(remainder + aux - (divisor - Self::F::one()));
+    }
 
-        // Constraint that the remainder is less than the divisor
-        // r + aux = div - 1
-        self.add_constraint(r + aux - (div - Self::F::one()));
+    /// Evaluates reciprocal constraints for fixed-point numbers.
+    /// Constrains: scale * scale = value * reciprocal + remainder
+    fn eval_fixed_recip(
+        &mut self,
+        value: Self::F,
+        scale: Self::F,
+        reciprocal: Self::F,
+        remainder: Self::F,
+    ) {
+        let scale_squared = self.add_intermediate(scale.clone() * scale);
+        self.eval_fixed_div_rem(scale_squared, value, reciprocal, remainder);
+    }
+
+    /// Evaluates constraints for square root operations.
+    /// Adds constraints to verify that:
+    /// 1. The input is non-negative
+    /// 2. out^2 + rem = input * SCALE_FACTOR
+    ///
+    /// # Parameters
+    /// - `input`: The trace column value representing the scaled input.
+    /// - `out`: The trace column value of the scaled square root.
+    /// - `rem`: The trace column value of the remainder.
+    fn eval_fixed_sqrt(&mut self, input: Self::F, out: Self::F, rem: Self::F) {
+        // Constraint to ensure input is non-negative
+        // For field elements, we check if input is in the range [0, HALF_P)
+        // We need an auxiliary variable to ensure 0 <= input < HALF_P
+        let aux =
+            self.add_intermediate(Self::F::from(M31(HALF_P)) - Self::F::one() - input.clone());
+        self.add_constraint(input.clone() + aux - (Self::F::from(M31(HALF_P)) - Self::F::one()));
+
+        // Enforce the constraint: out^2 + rem = input * SCALE_FACTOR
+        self.add_constraint((out.clone() * out) + rem.clone() - (input * SCALE_FACTOR));
     }
 }
 
@@ -60,7 +91,7 @@ mod tests {
     use stwo_prover::{
         constraint_framework::{self, preprocessed_columns::IsFirst, FrameworkEval},
         core::{
-            backend::{Col, Column, CpuBackend},
+            backend::{simd::SimdBackend, Col, Column},
             fields::{
                 m31::{BaseField, P},
                 qm31::SecureField,
@@ -87,6 +118,8 @@ mod tests {
         Add,
         Sub,
         Mul,
+        Recip,
+        Sqrt,
     }
 
     impl FrameworkEval for TestEval {
@@ -119,6 +152,18 @@ mod tests {
                     let rem = eval.next_trace_mask();
                     eval.eval_fixed_mul(lhs, rhs, SCALE_FACTOR.into(), out, rem)
                 }
+                Op::Recip => {
+                    let input = eval.next_trace_mask();
+                    let out = eval.next_trace_mask();
+                    let rem = eval.next_trace_mask();
+                    eval.eval_fixed_recip(input, SCALE_FACTOR.into(), out, rem)
+                }
+                Op::Sqrt => {
+                    let input = eval.next_trace_mask();
+                    let out = eval.next_trace_mask();
+                    let rem = eval.next_trace_mask();
+                    eval.eval_fixed_sqrt(input, out, rem)
+                }
             }
             eval
         }
@@ -127,10 +172,10 @@ mod tests {
     fn columns_to_evaluations(
         cols: Vec<Vec<BaseField>>,
         domain: CanonicCoset,
-    ) -> Vec<CircleEvaluation<CpuBackend, BaseField, BitReversedOrder>> {
+    ) -> Vec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>> {
         cols.into_iter()
             .map(|col| {
-                let mut trace_col = Col::<CpuBackend, BaseField>::zeros(1 << domain.log_size());
+                let mut trace_col = Col::<SimdBackend, BaseField>::zeros(1 << domain.log_size());
                 for (i, val) in col.iter().enumerate() {
                     trace_col.set(i, *val);
                 }
@@ -139,7 +184,12 @@ mod tests {
             .collect()
     }
 
-    fn test_op(op: Op, inputs: Vec<Fixed>, expected_outputs: Vec<Fixed>) {
+    fn test_op(
+        op: Op,
+        inputs: Vec<Fixed>,
+        expected_outputs: Vec<Fixed>,
+        tamper_col_idx: usize, // The column to tamper
+    ) {
         const LOG_SIZE: u32 = 4;
         let domain = CanonicCoset::new(LOG_SIZE);
         let size = 1 << LOG_SIZE;
@@ -157,7 +207,7 @@ mod tests {
         }
 
         let trace_evals = columns_to_evaluations(trace_cols.clone(), domain);
-        let is_first = IsFirst::new(LOG_SIZE).gen_column_simd().to_cpu();
+        let is_first = IsFirst::new(LOG_SIZE).gen_column_simd();
         let trace = TreeVec::new(vec![vec![is_first], trace_evals, Vec::new()]);
 
         let trace_polys = trace.map_cols(|c| c.interpolate());
@@ -179,14 +229,14 @@ mod tests {
 
         // Test invalid trace - modify the output column
         let mut invalid_trace_cols = trace_cols;
-        if let Some(last_col) = invalid_trace_cols.last_mut() {
-            for val in last_col.iter_mut() {
-                val.0 = (val.0 + 1) % P;
+        if let Some(col) = invalid_trace_cols.get_mut(tamper_col_idx) {
+            for val in col.iter_mut() {
+                val.0 = (val.0 + SCALE_FACTOR.0) % P;
             }
         }
 
         let invalid_trace_evals = columns_to_evaluations(invalid_trace_cols, domain);
-        let is_first = IsFirst::new(LOG_SIZE).gen_column_simd().to_cpu();
+        let is_first = IsFirst::new(LOG_SIZE).gen_column_simd();
         let invalid_trace = TreeVec::new(vec![vec![is_first], invalid_trace_evals, Vec::new()]);
 
         let invalid_trace_polys = invalid_trace.map_cols(|c| c.interpolate());
@@ -212,7 +262,7 @@ mod tests {
             let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
             let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
 
-            test_op(Op::Add, vec![a, b], vec![a + b]);
+            test_op(Op::Add, vec![a, b], vec![a + b], 2);
         }
     }
 
@@ -222,7 +272,7 @@ mod tests {
         for _ in 0..100 {
             let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
             let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            test_op(Op::Sub, vec![a, b], vec![a - b]);
+            test_op(Op::Sub, vec![a, b], vec![a - b], 2);
         }
     }
 
@@ -232,14 +282,11 @@ mod tests {
 
         // Test regular multiplication cases
         for _ in 0..100 {
-            let a = (rng.gen::<f64>() - 0.5) * 10.0;
-            let b = (rng.gen::<f64>() - 0.5) * 10.0;
+            let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let (expected, rem) = a * b;
 
-            let fixed_a = Fixed::from_f64(a);
-            let fixed_b = Fixed::from_f64(b);
-            let (expected, rem) = fixed_a * fixed_b;
-
-            test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
+            test_op(Op::Mul, vec![a, b], vec![expected, rem], 2);
         }
 
         // Test special cases
@@ -260,7 +307,56 @@ mod tests {
             let fixed_b = Fixed::from_f64(b);
             let (expected, rem) = fixed_a * fixed_b;
 
-            test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem]);
+            test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem], 2);
+        }
+    }
+
+    #[test]
+    fn test_recip() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        // Test regular multiplication cases
+        for _ in 0..100 {
+            let input = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let (expected, rem) = input.recip();
+
+            test_op(Op::Recip, vec![input], vec![expected, rem], 2);
+        }
+
+        // Test special cases
+        let special_cases = vec![
+            1.0,   // Unit case
+            2.0,   // Integer > 1
+            0.5,   // Fraction between 0 and 1
+            4.25,  // Mixed number
+            -1.0,  // Negative unit
+            -0.25, // Negative fraction
+        ];
+
+        for input in special_cases {
+            let fixed_input = Fixed::from_f64(input);
+            let (expected, rem) = fixed_input.recip();
+
+            test_op(Op::Recip, vec![fixed_input], vec![expected, rem], 1);
+        }
+    }
+
+    #[test]
+    fn test_eval_sqrt() {
+        let test_cases = vec![1.0, 4.0, 9.0, 2.0, 0.5, 0.25, 0.0];
+        for input in test_cases {
+            let fixed_input = Fixed::from_f64(input);
+            let (sqrt_out, rem) = fixed_input.sqrt();
+
+            test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem], 1);
+        }
+
+        let mut rng = StdRng::seed_from_u64(43);
+        for _ in 0..50 {
+            let input_val: f64 = rng.gen_range(0.0..100.0);
+            let fixed_input = Fixed::from_f64(input_val);
+            let (sqrt_out, rem) = fixed_input.sqrt();
+            test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem], 1);
         }
     }
 }
