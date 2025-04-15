@@ -45,6 +45,14 @@ pub trait EvalFixedPoint: EvalAtRow {
         self.add_constraint(remainder + aux - (divisor - Self::F::one()));
     }
 
+    /// Evaluates the remainder constraint for fixed-point division.
+    /// This method enforces that remainder is in the range [0, divisor).
+    fn eval_fixed_rem(&mut self, divisor: Self::F, remainder: Self::F) {
+        // Create an auxiliary variable to check that remainder < divisor.
+        let aux = self.add_intermediate(divisor.clone() - Self::F::one() - remainder.clone());
+        self.add_constraint(remainder + aux - (divisor - Self::F::one()));
+    }
+
     /// Evaluates reciprocal constraints for fixed-point numbers.
     /// Constrains: scale * scale = value * reciprocal + remainder
     fn eval_fixed_recip(
