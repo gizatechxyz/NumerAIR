@@ -1,5 +1,5 @@
 use num_traits::Zero;
-use std::ops::{Add, Div, Mul, Sub, Rem};
+use std::ops::{Add, Mul, Sub, Rem};
 use stwo_prover::core::fields::m31::{M31, P};
 
 pub mod eval;
