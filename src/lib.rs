@@ -1,4 +1,5 @@
 use num_traits::Zero;
+use serde::{Deserialize, Serialize};
 use std::ops::{Add, Mul, Sub};
 use stwo_prover::core::fields::m31::{M31, P};
 
@@ -14,7 +15,7 @@ pub const HALF_P: u32 = P / 2;
 const REMAINDER_MASK: i64 = (1 << DEFAULT_SCALE) - 1;
 
 /// Integer representation of fixed-point Basefield.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fixed(pub i64);
 
 impl Fixed {
