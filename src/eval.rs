@@ -45,14 +45,6 @@ pub trait EvalFixedPoint: EvalAtRow {
         self.add_constraint(remainder + aux - (divisor - Self::F::one()));
     }
 
-    /// Evaluates the remainder constraint for fixed-point division.
-    /// This method enforces that remainder is in the range [0, divisor).
-    fn eval_fixed_rem(&mut self, divisor: Self::F, remainder: Self::F) {
-        // Create an auxiliary variable to check that remainder < divisor.
-        let aux = self.add_intermediate(divisor.clone() - Self::F::one() - remainder.clone());
-        self.add_constraint(remainder + aux - (divisor - Self::F::one()));
-    }
-
     /// Evaluates reciprocal constraints for fixed-point numbers.
     /// Constrains: scale * scale = value * reciprocal + remainder
     fn eval_fixed_recip(
@@ -128,6 +120,7 @@ mod tests {
         Mul,
         Recip,
         Sqrt,
+        Rem,
     }
 
     impl FrameworkEval for TestEval {
@@ -171,6 +164,13 @@ mod tests {
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
                     eval.eval_fixed_sqrt(input, out, rem)
+                }
+                Op::Rem => {
+                    let dividend = eval.next_trace_mask(); 
+                    let divisor = eval.next_trace_mask(); 
+                    let quot = eval.next_trace_mask(); 
+                    let rem = eval.next_trace_mask(); 
+                    eval.eval_fixed_div_rem(dividend, divisor, quot, rem);
                 }
             }
             eval
@@ -365,6 +365,47 @@ mod tests {
             let fixed_input = Fixed::from_f64(input_val);
             let (sqrt_out, rem) = fixed_input.sqrt();
             test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem], 1);
+        }
+    }
+
+    #[test]
+    fn test_eval_rem() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        // Test regular remainder cases
+        for _ in 0..100 {
+            let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            if b.to_f64() > 0.0 {
+                let raw_q = a.0.div_euclid(b.0);
+                let raw_r = a.0.rem_euclid(b.0);
+                let q = Fixed(raw_q);
+                let r = Fixed(raw_r);
+                test_op(Op::Rem, vec![a, b], vec![q, r], 3);
+            }
+        }
+
+        // Test special cases
+        let special_cases = vec![
+            (10.0, 3.0),
+            (-10.0, 3.0),
+            (10.0, -3.0),
+            (-10.0, -3.0),
+            (0.0, 3.0),
+            (10.0, 1.0),
+            (10.0, 0.5),
+        ];
+
+        for (a0, b0) in special_cases {
+            let fixed_a = Fixed::from_f64(a0);
+            let fixed_b = Fixed::from_f64(b0);
+            if fixed_b.to_f64() > 0.0 {
+                let raw_q = fixed_a.0.div_euclid(fixed_b.0);
+                let raw_r = fixed_a.0.rem_euclid(fixed_b.0);
+                let q = Fixed(raw_q);
+                let r = Fixed(raw_r);
+                test_op(Op::Rem, vec![fixed_a, fixed_b], vec![q, r], 3);
+            }
         }
     }
 }
