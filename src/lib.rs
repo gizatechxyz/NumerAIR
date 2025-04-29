@@ -6,13 +6,12 @@ use stwo_prover::core::fields::m31::{M31, P};
 pub mod eval;
 
 // Number of bits used for decimal precision.
-pub const DEFAULT_SCALE: u32 = 12;
+pub const DEFAULT_SCALE: u32 = 15;
+pub const HALF_SCALE: u32 = 1 << (DEFAULT_SCALE - 1);
 // Scale factor = 2^DEFAULT_SCALE, used for fixed-point arithmetic.
 pub const SCALE_FACTOR: M31 = M31::from_u32_unchecked(1 << DEFAULT_SCALE);
 // Half the prime modulus.
 pub const HALF_P: u32 = P / 2;
-// Mask for remainder in fixed-point operations (2^DEFAULT_SCALE - 1)
-const REMAINDER_MASK: i64 = (1 << DEFAULT_SCALE) - 1;
 
 /// Integer representation of fixed-point Basefield.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -175,10 +174,14 @@ impl Mul for Fixed {
     #[inline]
     fn mul(self, rhs: Self) -> Self::Output {
         let product = self.0 * rhs.0;
-        (
-            Self(product >> DEFAULT_SCALE),
-            Self(product & REMAINDER_MASK),
-        )
+
+        let quotient = (product + HALF_SCALE as i64) >> DEFAULT_SCALE;
+
+        // Calculate remainder to maintain: product = quotient * scale + remainder
+        let scaled_quotient = quotient << DEFAULT_SCALE;
+        let remainder = product - scaled_quotient;
+
+        (Self(quotient), Self(remainder))
     }
 }
 
@@ -200,7 +203,7 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
-    const EPSILON: f64 = 1e-2;
+    const EPSILON: f64 = 1e-3;
 
     fn assert_near(a: f64, b: f64) {
         assert!((a - b).abs() < EPSILON, "Expected {} to be near {}", a, b);
