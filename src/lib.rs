@@ -6,7 +6,7 @@ use stwo_prover::core::fields::m31::{M31, P};
 pub mod eval;
 
 // Number of bits used for decimal precision.
-pub const DEFAULT_SCALE: u32 = 15;
+pub const DEFAULT_SCALE: u32 = 12;
 pub const HALF_SCALE: u32 = 1 << (DEFAULT_SCALE - 1);
 // Scale factor = 2^DEFAULT_SCALE, used for fixed-point arithmetic.
 pub const SCALE_FACTOR: M31 = M31::from_u32_unchecked(1 << DEFAULT_SCALE);

@@ -218,7 +218,7 @@ mod tests {
         };
 
         // Test valid trace
-        constraint_framework::assert_constraints(
+        constraint_framework::assert_constraints_on_polys(
             &trace_polys,
             domain,
             |eval| {
@@ -243,7 +243,7 @@ mod tests {
 
         // This should panic for invalid trace
         let result = std::panic::catch_unwind(|| {
-            constraint_framework::assert_constraints(
+            constraint_framework::assert_constraints_on_polys(
                 &invalid_trace_polys,
                 domain,
                 |eval| {
