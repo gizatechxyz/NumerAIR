@@ -61,13 +61,14 @@ pub trait EvalFixedPoint: EvalAtRow {
     /// Evaluates constraints for square root operations.
     /// Adds constraints to verify that:
     /// 1. The input is non-negative
-    /// 2. out^2 + rem = input * SCALE_FACTOR
+    /// 2. out^2 + rem = input * scale_factor
     ///
     /// # Parameters
     /// - `input`: The trace column value representing the scaled input.
     /// - `out`: The trace column value of the scaled square root.
     /// - `rem`: The trace column value of the remainder.
-    fn eval_fixed_sqrt(&mut self, input: Self::F, out: Self::F, rem: Self::F) {
+    /// - `scale_factor`: The scale factor to use for fixed-point representation.
+    fn eval_fixed_sqrt(&mut self, input: Self::F, out: Self::F, rem: Self::F, scale_factor: Self::F) {
         // Constraint to ensure input is non-negative
         // For field elements, we check if input is in the range [0, HALF_P)
         // We need an auxiliary variable to ensure 0 <= input < HALF_P
@@ -75,8 +76,8 @@ pub trait EvalFixedPoint: EvalAtRow {
             self.add_intermediate(Self::F::from(M31(HALF_P)) - Self::F::one() - input.clone());
         self.add_constraint(input.clone() + aux - (Self::F::from(M31(HALF_P)) - Self::F::one()));
 
-        // Enforce the constraint: out^2 + rem = input * SCALE_FACTOR
-        self.add_constraint((out.clone() * out) + rem.clone() - (input * SCALE_FACTOR));
+        // Enforce the constraint: out^2 + rem = input * scale_factor
+        self.add_constraint((out.clone() * out) + rem.clone() - (input * scale_factor));
     }
 }
 
@@ -92,7 +93,7 @@ mod tests {
         core::{
             backend::{simd::SimdBackend, Col, Column},
             fields::{
-                m31::{BaseField, P},
+                m31::{BaseField, M31, P},
                 qm31::SecureField,
             },
             pcs::TreeVec,
@@ -103,7 +104,7 @@ mod tests {
         },
     };
 
-    use crate::{DefaultScale, Fixed};
+    use crate::{DefaultScale, Fixed, FixedScale};
 
     use super::*;
 
@@ -131,6 +132,8 @@ mod tests {
         }
 
         fn evaluate<E: EvalAtRow>(&self, mut eval: E) -> E {
+            let scale_factor = M31::from_u32_unchecked(1 << DefaultScale::SCALE);
+            
             match self.op {
                 Op::Add => {
                     let lhs = eval.next_trace_mask();
@@ -149,19 +152,19 @@ mod tests {
                     let rhs = eval.next_trace_mask();
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
-                    eval.eval_fixed_mul(lhs, rhs, SCALE_FACTOR.into(), out, rem)
+                    eval.eval_fixed_mul(lhs, rhs, scale_factor.into(), out, rem)
                 }
                 Op::Recip => {
                     let input = eval.next_trace_mask();
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
-                    eval.eval_fixed_recip(input, SCALE_FACTOR.into(), out, rem)
+                    eval.eval_fixed_recip(input, scale_factor.into(), out, rem)
                 }
                 Op::Sqrt => {
                     let input = eval.next_trace_mask();
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
-                    eval.eval_fixed_sqrt(input, out, rem)
+                    eval.eval_fixed_sqrt(input, out, rem, scale_factor.into())
                 }
             }
             eval
@@ -230,7 +233,9 @@ mod tests {
         let mut invalid_trace_cols = trace_cols;
         if let Some(col) = invalid_trace_cols.get_mut(tamper_col_idx) {
             for val in col.iter_mut() {
-                val.0 = (val.0 + SCALE_FACTOR.0) % P;
+                // Calculate scale factor for tampering
+                let scale_factor = M31::from_u32_unchecked(1 << DefaultScale::SCALE);
+                val.0 = (val.0 + scale_factor.0) % P;
             }
         }
 
