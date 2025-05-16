@@ -1,4 +1,4 @@
-use crate::{HALF_P, SCALE_FACTOR};
+use crate::HALF_P;
 use num_traits::One;
 use stwo_prover::{constraint_framework::EvalAtRow, core::fields::m31::M31};
 
@@ -85,7 +85,6 @@ impl<T: EvalAtRow> EvalFixedPoint for T {}
 
 #[cfg(test)]
 mod tests {
-
     use num_traits::Zero;
     use rand::{rngs::StdRng, Rng, SeedableRng};
     use stwo_prover::{
@@ -104,7 +103,7 @@ mod tests {
         },
     };
 
-    use crate::{Fixed, SCALE_FACTOR};
+    use crate::{DefaultScale, Fixed};
 
     use super::*;
 
@@ -184,11 +183,11 @@ mod tests {
             .collect()
     }
 
-    fn test_op(
+    fn test_op_internal(
         op: Op,
-        inputs: Vec<Fixed>,
-        expected_outputs: Vec<Fixed>,
-        tamper_col_idx: usize, // The column to tamper
+        inputs: &[Fixed<DefaultScale>],
+        expected_outputs: &[Fixed<DefaultScale>],
+        tamper_col_idx: usize,
     ) {
         const LOG_SIZE: u32 = 4;
         let domain = CanonicCoset::new(LOG_SIZE);
@@ -259,10 +258,10 @@ mod tests {
     fn test_add() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
-            let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let a = Fixed::<DefaultScale>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = Fixed::<DefaultScale>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
 
-            test_op(Op::Add, vec![a, b], vec![a + b], 2);
+            test_op_internal(Op::Add, &[a, b], &[a + b], 2);
         }
     }
 
@@ -270,9 +269,10 @@ mod tests {
     fn test_sub() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
-            let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            test_op(Op::Sub, vec![a, b], vec![a - b], 2);
+            let a = Fixed::<DefaultScale>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = Fixed::<DefaultScale>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+
+            test_op_internal(Op::Sub, &[a, b], &[a - b], 2);
         }
     }
 
@@ -282,11 +282,11 @@ mod tests {
 
         // Test regular multiplication cases
         for _ in 0..100 {
-            let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let a = Fixed::<DefaultScale>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = Fixed::<DefaultScale>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
             let (expected, rem) = a * b;
 
-            test_op(Op::Mul, vec![a, b], vec![expected, rem], 2);
+            test_op_internal(Op::Mul, &[a, b], &[expected, rem], 2);
         }
 
         // Test special cases
@@ -303,11 +303,11 @@ mod tests {
         ];
 
         for (a, b) in special_cases {
-            let fixed_a = Fixed::from_f64(a);
-            let fixed_b = Fixed::from_f64(b);
+            let fixed_a = Fixed::<DefaultScale>::from_f64(a);
+            let fixed_b = Fixed::<DefaultScale>::from_f64(b);
             let (expected, rem) = fixed_a * fixed_b;
 
-            test_op(Op::Mul, vec![fixed_a, fixed_b], vec![expected, rem], 2);
+            test_op_internal(Op::Mul, &[fixed_a, fixed_b], &[expected, rem], 2);
         }
     }
 
@@ -315,12 +315,16 @@ mod tests {
     fn test_recip() {
         let mut rng = StdRng::seed_from_u64(42);
 
-        // Test regular multiplication cases
+        // Test regular recip cases
         for _ in 0..100 {
-            let input = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let input = Fixed::<DefaultScale>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            if input.0 == 0 {
+                continue; // Skip division by zero
+            }
+
             let (expected, rem) = input.recip();
 
-            test_op(Op::Recip, vec![input], vec![expected, rem], 2);
+            test_op_internal(Op::Recip, &[input], &[expected, rem], 1);
         }
 
         // Test special cases
@@ -334,29 +338,30 @@ mod tests {
         ];
 
         for input in special_cases {
-            let fixed_input = Fixed::from_f64(input);
+            let fixed_input = Fixed::<DefaultScale>::from_f64(input);
             let (expected, rem) = fixed_input.recip();
 
-            test_op(Op::Recip, vec![fixed_input], vec![expected, rem], 1);
+            test_op_internal(Op::Recip, &[fixed_input], &[expected, rem], 1);
         }
     }
 
     #[test]
-    fn test_eval_sqrt() {
+    fn test_sqrt() {
         let test_cases = vec![1.0, 4.0, 9.0, 2.0, 0.5, 0.25, 0.0];
         for input in test_cases {
-            let fixed_input = Fixed::from_f64(input);
+            let fixed_input = Fixed::<DefaultScale>::from_f64(input);
             let (sqrt_out, rem) = fixed_input.sqrt();
 
-            test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem], 1);
+            test_op_internal(Op::Sqrt, &[fixed_input], &[sqrt_out, rem], 1);
         }
 
         let mut rng = StdRng::seed_from_u64(43);
         for _ in 0..50 {
             let input_val: f64 = rng.gen_range(0.0..100.0);
-            let fixed_input = Fixed::from_f64(input_val);
+            let fixed_input = Fixed::<DefaultScale>::from_f64(input_val);
             let (sqrt_out, rem) = fixed_input.sqrt();
-            test_op(Op::Sqrt, vec![fixed_input], vec![sqrt_out, rem], 1);
+
+            test_op_internal(Op::Sqrt, &[fixed_input], &[sqrt_out, rem], 1);
         }
     }
 }
