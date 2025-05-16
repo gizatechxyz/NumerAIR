@@ -19,12 +19,12 @@ pub trait EvalFixedPoint: EvalAtRow {
         &mut self,
         a: Self::F,
         b: Self::F,
-        scale: Self::F,
+        scale_factor: Self::F,
         quotient: Self::F,
         remainder: Self::F,
     ) {
         let product = self.add_intermediate(a * b);
-        self.eval_fixed_div_rem(product, scale, quotient, remainder);
+        self.eval_fixed_div_rem(product, scale_factor, quotient, remainder);
     }
 
     /// Evaluates constraints for signed division with remainder.
@@ -46,15 +46,15 @@ pub trait EvalFixedPoint: EvalAtRow {
     }
 
     /// Evaluates reciprocal constraints for fixed-point numbers.
-    /// Constrains: scale * scale = value * reciprocal + remainder
+    /// Constrains: scale_factor * scale_factor = value * reciprocal + remainder
     fn eval_fixed_recip(
         &mut self,
         value: Self::F,
-        scale: Self::F,
+        scale_factor: Self::F,
         reciprocal: Self::F,
         remainder: Self::F,
     ) {
-        let scale_squared = self.add_intermediate(scale.clone() * scale);
+        let scale_squared = self.add_intermediate(scale_factor.clone() * scale_factor);
         self.eval_fixed_div_rem(scale_squared, value, reciprocal, remainder);
     }
 
@@ -67,8 +67,14 @@ pub trait EvalFixedPoint: EvalAtRow {
     /// - `input`: The trace column value representing the scaled input.
     /// - `out`: The trace column value of the scaled square root.
     /// - `rem`: The trace column value of the remainder.
-    /// - `scale_factor`: The scale factor to use for fixed-point representation.
-    fn eval_fixed_sqrt(&mut self, input: Self::F, out: Self::F, rem: Self::F, scale_factor: Self::F) {
+    /// - `scale_factor`: The scale_factor factor to use for fixed-point representation.
+    fn eval_fixed_sqrt(
+        &mut self,
+        input: Self::F,
+        out: Self::F,
+        rem: Self::F,
+        scale_factor: Self::F,
+    ) {
         // Constraint to ensure input is non-negative
         // For field elements, we check if input is in the range [0, HALF_P)
         // We need an auxiliary variable to ensure 0 <= input < HALF_P
@@ -132,8 +138,8 @@ mod tests {
         }
 
         fn evaluate<E: EvalAtRow>(&self, mut eval: E) -> E {
-            let scale_factor = M31::from_u32_unchecked(1 << DefaultScale::SCALE);
-            
+            let scale_factor = E::F::from(M31::from_u32_unchecked(1 << DefaultScale::SCALE));
+
             match self.op {
                 Op::Add => {
                     let lhs = eval.next_trace_mask();
@@ -152,19 +158,19 @@ mod tests {
                     let rhs = eval.next_trace_mask();
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
-                    eval.eval_fixed_mul(lhs, rhs, scale_factor.into(), out, rem)
+                    eval.eval_fixed_mul(lhs, rhs, scale_factor, out, rem)
                 }
                 Op::Recip => {
                     let input = eval.next_trace_mask();
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
-                    eval.eval_fixed_recip(input, scale_factor.into(), out, rem)
+                    eval.eval_fixed_recip(input, scale_factor, out, rem)
                 }
                 Op::Sqrt => {
                     let input = eval.next_trace_mask();
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
-                    eval.eval_fixed_sqrt(input, out, rem, scale_factor.into())
+                    eval.eval_fixed_sqrt(input, out, rem, scale_factor)
                 }
             }
             eval
