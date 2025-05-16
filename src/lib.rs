@@ -1,6 +1,5 @@
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
-use std::marker::PhantomData;
 use std::ops::{Add, Mul, Sub};
 use stwo_prover::core::fields::m31::{M31, P};
 
@@ -11,7 +10,7 @@ pub const HALF_P: u32 = P / 2;
 
 /// Integer representation of fixed-point Basefield with parametrized scale.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Fixed<const SCALE: u32>(pub i64, PhantomData<()>);
+pub struct Fixed<const SCALE: u32>(pub i64);
 
 impl<const SCALE: u32> Fixed<SCALE> {
     const SCALE_FACTOR: i64 = 1 << SCALE;
@@ -19,10 +18,7 @@ impl<const SCALE: u32> Fixed<SCALE> {
 
     #[inline]
     pub fn from_f64(value: f64) -> Self {
-        Self(
-            (value * Self::SCALE_FACTOR as f64).round() as i64,
-            PhantomData,
-        )
+        Self((value * Self::SCALE_FACTOR as f64).round() as i64)
     }
 
     #[inline]
@@ -61,9 +57,9 @@ impl<const SCALE: u32> Fixed<SCALE> {
         let is_negative = m31_val > HALF_P;
 
         if is_negative {
-            Self(-((P - m31_val) as i64), PhantomData)
+            Self(-((P - m31_val) as i64))
         } else {
-            Self(m31_val as i64, PhantomData)
+            Self(m31_val as i64)
         }
     }
 
@@ -80,7 +76,7 @@ impl<const SCALE: u32> Fixed<SCALE> {
         let quotient = scale_factor_squared / self.0;
         let remainder = scale_factor_squared % self.0;
 
-        (Self(quotient, PhantomData), Self(remainder, PhantomData))
+        (Self(quotient), Self(remainder))
     }
 
     /// Computes the fixed-point representation of the square root and its remainder.
@@ -100,7 +96,7 @@ impl<const SCALE: u32> Fixed<SCALE> {
 
         // Special case: zero input
         if self.0 == 0 {
-            return (Self(0, PhantomData), Self(0, PhantomData));
+            return (Self(0), Self(0));
         }
 
         // Calculate value to compute sqrt of: self * SCALE_FACTOR
@@ -113,8 +109,8 @@ impl<const SCALE: u32> Fixed<SCALE> {
         let remainder = input_scaled - sqrt_val * sqrt_val;
 
         (
-            Self(sqrt_val as i64, PhantomData),
-            Self(remainder as i64, PhantomData),
+            Self(sqrt_val as i64),
+            Self(remainder as i64),
         )
     }
 
@@ -122,15 +118,15 @@ impl<const SCALE: u32> Fixed<SCALE> {
     pub fn convert_to<const TARGET_SCALE: u32>(self) -> Fixed<TARGET_SCALE> {
         if TARGET_SCALE == SCALE {
             // Same scale, just change the type
-            Fixed(self.0, PhantomData)
+            Fixed(self.0)
         } else if TARGET_SCALE > SCALE {
             // Going to higher precision
             let shift = TARGET_SCALE - SCALE;
-            Fixed(self.0 << shift, PhantomData)
+            Fixed(self.0 << shift)
         } else {
             // Going to lower precision
             let shift = SCALE - TARGET_SCALE;
-            Fixed(self.0 >> shift, PhantomData)
+            Fixed(self.0 >> shift)
         }
     }
 }
@@ -174,7 +170,7 @@ impl<const SCALE: u32> Add for Fixed<SCALE> {
 
     #[inline]
     fn add(self, rhs: Self) -> Self::Output {
-        Self(self.0 + rhs.0, PhantomData)
+        Self(self.0 + rhs.0)
     }
 }
 
@@ -183,7 +179,7 @@ impl<const SCALE: u32> Sub for Fixed<SCALE> {
 
     #[inline]
     fn sub(self, rhs: Self) -> Self::Output {
-        Self(self.0 - rhs.0, PhantomData)
+        Self(self.0 - rhs.0)
     }
 }
 
@@ -200,14 +196,14 @@ impl<const SCALE: u32> Mul for Fixed<SCALE> {
         let scaled_quotient = quotient << SCALE;
         let remainder = product - scaled_quotient;
 
-        (Self(quotient, PhantomData), Self(remainder, PhantomData))
+        (Self(quotient), Self(remainder))
     }
 }
 
 impl<const SCALE: u32> Zero for Fixed<SCALE> {
     #[inline]
     fn zero() -> Self {
-        Self(0, PhantomData)
+        Self(0)
     }
 
     #[inline]
