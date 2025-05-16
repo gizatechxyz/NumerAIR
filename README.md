@@ -5,47 +5,31 @@ The library implements fixed-point arithmetic using M31 field elements with conf
 
 ## Features
 
-- Parameterized scale for flexible precision
+- Type-level scale parameter using Rust's const generics
 - Fixed-point operations (addition, subtraction, multiplication, reciprocal, square root)
 - Circuit constraints for all operations
-- Type-safe scale implementation
+- Zero memory overhead for scale information
 
 ## Usage
 
 ### Basic Arithmetic
 
 ```rust
-// Using default scale (15 bits of precision)
-let a = Fixed::<DefaultScale>::from_f64(3.14);
-let b = Fixed::<DefaultScale>::from_f64(2.0);
+// Using 15 bits of precision
+let a = Fixed::<15>::from_f64(3.14);
+let b = Fixed::<15>::from_f64(2.0);
 
 // Basic arithmetic operations
 let sum = a + b;
 let diff = a - b;
 let (prod, rem) = a * b;
 
-// Using custom scale
-let high_precision = Fixed::<Scale24>::from_f64(0.12345678);
-let low_precision = Fixed::<Scale8>::from_f64(42.5);
+// Using custom scales
+let high_precision = Fixed::<24>::from_f64(0.12345678);
+let low_precision = Fixed::<8>::from_f64(42.5);
 
 // Convert between scales
-let converted = high_precision.convert_to::<Scale8>();
-```
-
-### Custom Scales
-
-You can define custom precision scales by implementing the `FixedScale` trait:
-
-```rust
-// Define a custom 12-bit scale
-#[derive(Copy, Clone, Debug)]
-pub struct Scale12;
-impl FixedScale for Scale12 {
-    const SCALE: u32 = 12;
-}
-
-// Use your custom scale
-let value = Fixed::<Scale12>::from_f64(123.456);
+let converted = high_precision.convert_to::<8>();
 ```
 
 ### In Circuit Constraints
@@ -62,8 +46,8 @@ fn evaluate<E: EvalAtRow>(&self, mut eval: E) -> E {
     let rem = eval.next_trace_mask();
     let res = eval.next_trace_mask();
     
-    // Get scale factor for DefaultScale
-    let scale_factor = E::F::from(M31::from_u32_unchecked(1 << DefaultScale::SCALE));
+    // Get scale factor for the specific scale you're using
+    let scale_factor = E::F::from(M31::from_u32_unchecked(1 << 15)); // For Fixed<15>
 
     // Constrain mul using EvalFixedPoint trait
     eval.eval_fixed_mul(lhs, rhs, scale_factor, res, rem);
@@ -74,11 +58,11 @@ fn evaluate<E: EvalAtRow>(&self, mut eval: E) -> E {
 
 ## How It Works
 
-The fixed-point representation uses a scale parameter to determine the number of bits used for the fractional part:
+The fixed-point representation uses a const generic parameter to determine the number of bits used for the fractional part:
 
-- `SCALE`: Number of bits used for decimal precision
-- `SCALE_FACTOR`: The value 2^SCALE, represents 1.0 in fixed-point
-- `HALF_SCALE_FACTOR`: The value 2^(SCALE-1), used for rounding
+- `SCALE`: Type-level constant that defines the number of bits for decimal precision
+- `SCALE_FACTOR`: The value 2^SCALE (automatically calculated), represents 1.0 in fixed-point
+- `HALF_SCALE_FACTOR`: The value 2^(SCALE-1) (automatically calculated), used for rounding
 
 A value `x` in floating point is represented as `floor(x * 2^SCALE)` in fixed-point.
 

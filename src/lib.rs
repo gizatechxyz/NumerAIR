@@ -9,34 +9,26 @@ pub mod eval;
 // Half the prime modulus.
 pub const HALF_P: u32 = P / 2;
 
-/// Scale parameter marker trait
-pub trait FixedScale {
-    const SCALE: u32;
-    const SCALE_FACTOR: i64 = 1 << Self::SCALE;
-    const HALF_SCALE_FACTOR: i64 = 1 << (Self::SCALE - 1);
-}
-
-/// Default scale (15 bits of precision)
-#[derive(Copy, Clone, Debug)]
-pub struct DefaultScale;
-impl FixedScale for DefaultScale {
-    const SCALE: u32 = 15;
-}
-
 /// Integer representation of fixed-point Basefield with parametrized scale.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Fixed<S: FixedScale = DefaultScale>(pub i64, PhantomData<S>);
+pub struct Fixed<const SCALE: u32>(pub i64, PhantomData<()>);
 
-impl<S: FixedScale> Fixed<S> {
+impl<const SCALE: u32> Fixed<SCALE> {
+    const SCALE_FACTOR: i64 = 1 << SCALE;
+    const HALF_SCALE_FACTOR: i64 = 1 << (SCALE - 1);
+
     #[inline]
     pub fn from_f64(value: f64) -> Self {
-        Self((value * S::SCALE_FACTOR as f64).round() as i64, PhantomData)
+        Self(
+            (value * Self::SCALE_FACTOR as f64).round() as i64,
+            PhantomData,
+        )
     }
 
     #[inline]
     /// Convert to a float
     pub fn to_f64(self) -> f64 {
-        self.0 as f64 / S::SCALE_FACTOR as f64
+        self.0 as f64 / Self::SCALE_FACTOR as f64
     }
 
     #[inline]
@@ -84,9 +76,9 @@ impl<S: FixedScale> Fixed<S> {
     pub fn recip(self) -> (Self, Self) {
         assert!(self.0 != 0, "Division by zero");
 
-        let scale_squared = S::SCALE_FACTOR * S::SCALE_FACTOR;
-        let quotient = scale_squared / self.0;
-        let remainder = scale_squared % self.0;
+        let scale_factor_squared = Self::SCALE_FACTOR * Self::SCALE_FACTOR;
+        let quotient = scale_factor_squared / self.0;
+        let remainder = scale_factor_squared % self.0;
 
         (Self(quotient, PhantomData), Self(remainder, PhantomData))
     }
@@ -112,7 +104,7 @@ impl<S: FixedScale> Fixed<S> {
         }
 
         // Calculate value to compute sqrt of: self * SCALE_FACTOR
-        let input_scaled = (self.0 as u64) << S::SCALE;
+        let input_scaled = (self.0 as u64) << SCALE;
 
         // Compute integer square root
         let sqrt_val = int_sqrt(input_scaled);
@@ -124,6 +116,22 @@ impl<S: FixedScale> Fixed<S> {
             Self(sqrt_val as i64, PhantomData),
             Self(remainder as i64, PhantomData),
         )
+    }
+
+    /// Convert this Fixed value to a Fixed with a different scale
+    pub fn convert_to<const TARGET_SCALE: u32>(self) -> Fixed<TARGET_SCALE> {
+        if TARGET_SCALE == SCALE {
+            // Same scale, just change the type
+            Fixed(self.0, PhantomData)
+        } else if TARGET_SCALE > SCALE {
+            // Going to higher precision
+            let shift = TARGET_SCALE - SCALE;
+            Fixed(self.0 << shift, PhantomData)
+        } else {
+            // Going to lower precision
+            let shift = SCALE - TARGET_SCALE;
+            Fixed(self.0 >> shift, PhantomData)
+        }
     }
 }
 
@@ -161,7 +169,7 @@ pub fn int_sqrt(n: u64) -> u64 {
     }
 }
 
-impl<S: FixedScale> Add for Fixed<S> {
+impl<const SCALE: u32> Add for Fixed<SCALE> {
     type Output = Self;
 
     #[inline]
@@ -170,7 +178,7 @@ impl<S: FixedScale> Add for Fixed<S> {
     }
 }
 
-impl<S: FixedScale> Sub for Fixed<S> {
+impl<const SCALE: u32> Sub for Fixed<SCALE> {
     type Output = Self;
 
     #[inline]
@@ -179,24 +187,24 @@ impl<S: FixedScale> Sub for Fixed<S> {
     }
 }
 
-impl<S: FixedScale> Mul for Fixed<S> {
+impl<const SCALE: u32> Mul for Fixed<SCALE> {
     type Output = (Self, Self);
 
     #[inline]
     fn mul(self, rhs: Self) -> Self::Output {
         let product = self.0 * rhs.0;
 
-        let quotient = (product + S::HALF_SCALE_FACTOR) >> S::SCALE;
+        let quotient = (product + Self::HALF_SCALE_FACTOR) >> SCALE;
 
         // Calculate remainder to maintain: product = quotient * scale + remainder
-        let scaled_quotient = quotient << S::SCALE;
+        let scaled_quotient = quotient << SCALE;
         let remainder = product - scaled_quotient;
 
         (Self(quotient, PhantomData), Self(remainder, PhantomData))
     }
 }
 
-impl<S: FixedScale> Zero for Fixed<S> {
+impl<const SCALE: u32> Zero for Fixed<SCALE> {
     #[inline]
     fn zero() -> Self {
         Self(0, PhantomData)
@@ -205,37 +213,6 @@ impl<S: FixedScale> Zero for Fixed<S> {
     #[inline]
     fn is_zero(&self) -> bool {
         self.0 == 0
-    }
-}
-
-// Define additional scale configurations as needed
-#[derive(Copy, Clone, Debug)]
-pub struct Scale8;
-impl FixedScale for Scale8 {
-    const SCALE: u32 = 8;
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct Scale24;
-impl FixedScale for Scale24 {
-    const SCALE: u32 = 24;
-}
-
-// Implement conversions between different scales
-impl<S1: FixedScale> Fixed<S1> {
-    pub fn convert_to<T: FixedScale>(self) -> Fixed<T> {
-        if S1::SCALE == T::SCALE {
-            // Same scale, just change the type
-            Fixed(self.0, PhantomData)
-        } else if S1::SCALE < T::SCALE {
-            // Going to higher precision
-            let shift = T::SCALE - S1::SCALE;
-            Fixed(self.0 << shift, PhantomData)
-        } else {
-            // Going to lower precision
-            let shift = S1::SCALE - T::SCALE;
-            Fixed(self.0 >> shift, PhantomData)
-        }
     }
 }
 
@@ -253,8 +230,8 @@ mod tests {
 
     #[test]
     fn test_negative() {
-        let a: Fixed = Fixed::<DefaultScale>::from_f64(-3.5);
-        let b = Fixed::<DefaultScale>::from_f64(2.0);
+        let a = Fixed::<15>::from_f64(-3.5);
+        let b = Fixed::<15>::from_f64(2.0);
 
         assert_near(a.to_f64(), -3.5);
         assert_near((a + b).to_f64(), -1.5);
@@ -269,8 +246,8 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 200.0;
             let b = (rng.gen::<f64>() - 0.5) * 200.0;
 
-            let fa = Fixed::<DefaultScale>::from_f64(a);
-            let fb = Fixed::<DefaultScale>::from_f64(b);
+            let fa = Fixed::<15>::from_f64(a);
+            let fb = Fixed::<15>::from_f64(b);
 
             assert_near((fa + fb).to_f64(), a + b);
         }
@@ -284,8 +261,8 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 200.0;
             let b = (rng.gen::<f64>() - 0.5) * 200.0;
 
-            let fa = Fixed::<DefaultScale>::from_f64(a);
-            let fb = Fixed::<DefaultScale>::from_f64(b);
+            let fa = Fixed::<15>::from_f64(a);
+            let fb = Fixed::<15>::from_f64(b);
 
             assert_near((fa - fb).to_f64(), a - b);
         }
@@ -299,8 +276,8 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 10.0;
             let b = (rng.gen::<f64>() - 0.5) * 10.0;
 
-            let fa = Fixed::<DefaultScale>::from_f64(a);
-            let fb = Fixed::<DefaultScale>::from_f64(b);
+            let fa = Fixed::<15>::from_f64(a);
+            let fb = Fixed::<15>::from_f64(b);
 
             let (q, _) = fa * fb;
             let expected = a * b;
@@ -319,7 +296,7 @@ mod tests {
                 continue;
             }
 
-            let fixed_a = Fixed::<DefaultScale>::from_f64(a);
+            let fixed_a = Fixed::<15>::from_f64(a);
             let (recip, _) = fixed_a.recip();
             let expected = 1.0 / a;
 
@@ -337,7 +314,7 @@ mod tests {
         ];
 
         for (a, expected) in test_cases {
-            let fixed_a = Fixed::<DefaultScale>::from_f64(a);
+            let fixed_a = Fixed::<15>::from_f64(a);
             let (recip, _) = fixed_a.recip();
             assert_near(recip.to_f64(), expected);
         }
@@ -360,7 +337,7 @@ mod tests {
         }
 
         for input in test_cases {
-            let fixed_input = Fixed::<DefaultScale>::from_f64(input);
+            let fixed_input = Fixed::<15>::from_f64(input);
 
             if input < 0.0 {
                 let (result, remainder) = fixed_input.sqrt();
@@ -377,33 +354,33 @@ mod tests {
 
     #[test]
     fn test_different_scales() {
-        // Test with default scale (15 bits)
-        let default_scale = Fixed::<DefaultScale>::from_f64(1.5);
-        assert_near(default_scale.to_f64(), 1.5);
+        // Test with 15-bit scale
+        let scale_15 = Fixed::<15>::from_f64(1.5);
+        assert_near(scale_15.to_f64(), 1.5);
 
         // Test with 8-bit scale (less precision)
-        let scale8 = Fixed::<Scale8>::from_f64(1.5);
+        let scale8 = Fixed::<8>::from_f64(1.5);
         assert_near(scale8.to_f64(), 1.5);
 
         // Test with 24-bit scale (more precision)
-        let scale24 = Fixed::<Scale24>::from_f64(1.5);
+        let scale24 = Fixed::<24>::from_f64(1.5);
         assert_near(scale24.to_f64(), 1.5);
 
         // Test conversion between scales
-        let from_default_to_8 = default_scale.convert_to::<Scale8>();
-        assert_near(from_default_to_8.to_f64(), 1.5);
+        let from_15_to_8 = scale_15.convert_to::<8>();
+        assert_near(from_15_to_8.to_f64(), 1.5);
 
-        let from_8_to_24 = scale8.convert_to::<Scale24>();
+        let from_8_to_24 = scale8.convert_to::<24>();
         assert_near(from_8_to_24.to_f64(), 1.5);
 
         // Multiplication with different scales
-        let a8 = Fixed::<Scale8>::from_f64(2.5);
-        let b8 = Fixed::<Scale8>::from_f64(3.0);
+        let a8 = Fixed::<8>::from_f64(2.5);
+        let b8 = Fixed::<8>::from_f64(3.0);
         let (result8, _) = a8 * b8;
         assert_near(result8.to_f64(), 7.5);
 
-        let a24 = Fixed::<Scale24>::from_f64(2.5);
-        let b24 = Fixed::<Scale24>::from_f64(3.0);
+        let a24 = Fixed::<24>::from_f64(2.5);
+        let b24 = Fixed::<24>::from_f64(3.0);
         let (result24, _) = a24 * b24;
         assert_near(result24.to_f64(), 7.5);
     }
