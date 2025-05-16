@@ -24,12 +24,8 @@ let sum = a + b;
 let diff = a - b;
 let (prod, rem) = a * b;
 
-// Using custom scales
-let high_precision = Fixed::<24>::from_f64(0.12345678);
-let low_precision = Fixed::<8>::from_f64(42.5);
-
 // Convert between scales
-let converted = high_precision.convert_to::<8>();
+let converted = a.convert_to::<8>();
 ```
 
 ### In Circuit Constraints
