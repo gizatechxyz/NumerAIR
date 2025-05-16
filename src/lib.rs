@@ -13,7 +13,7 @@ pub const HALF_P: u32 = P / 2;
 pub trait FixedScale {
     const SCALE: u32;
     const SCALE_FACTOR: i64 = 1 << Self::SCALE;
-    const HALF_SCALE: i64 = 1 << (Self::SCALE - 1);
+    const HALF_SCALE_FACTOR: i64 = 1 << (Self::SCALE - 1);
 }
 
 /// Default scale (15 bits of precision)
@@ -186,7 +186,7 @@ impl<S: FixedScale> Mul for Fixed<S> {
     fn mul(self, rhs: Self) -> Self::Output {
         let product = self.0 * rhs.0;
 
-        let quotient = (product + S::HALF_SCALE) >> S::SCALE;
+        let quotient = (product + S::HALF_SCALE_FACTOR) >> S::SCALE;
 
         // Calculate remainder to maintain: product = quotient * scale + remainder
         let scaled_quotient = quotient << S::SCALE;
