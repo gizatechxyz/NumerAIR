@@ -129,6 +129,20 @@ impl<const SCALE: u32> Fixed<SCALE> {
             Fixed(self.0 >> shift)
         }
     }
+
+    /// Computes the less-than comparison between self and another Fixed value.
+    ///
+    /// Returns a tuple of (result, remainder) where:
+    /// - result is 1 if self < other, 0 otherwise
+    /// - remainder is always 0 (to maintain consistency with other operations that return remainders)
+    #[inline]
+    pub fn lt(&self, other: &Self) -> (Self, Self) {
+        if self.0 < other.0 {
+            (Self(1), Self(0)) // True case: self < other
+        } else {
+            (Self(0), Self(0)) // False case: self >= other
+        }
+    }
 }
 
 /// Returns the floor of the square root of `n`.
@@ -349,6 +363,55 @@ mod tests {
     }
 
     #[test]
+    fn test_lt() {
+        // Test cases for less-than comparison
+        let test_cases = vec![
+            (0.0, 1.0, true),   // 0 < 1
+            (1.0, 0.0, false),  // 1 < 0
+            (1.0, 1.0, false),  // 1 < 1 (equality)
+            (-1.0, 0.0, true),  // -1 < 0
+            (0.0, -1.0, false), // 0 < -1
+            (-2.0, -1.0, true), // -2 < -1
+            (0.5, 1.0, true),   // Fractional < Integer
+            (1.5, 1.0, false),  // Fractional > Integer
+            (-1.5, -1.0, true), // Negative fractional comparisons
+        ];
+
+        for (a, b, expected) in test_cases {
+            let fixed_a = Fixed::from_f64(a);
+            let fixed_b = Fixed::from_f64(b);
+            let (result, remainder) = fixed_a.lt(&fixed_b);
+
+            // Check correctness
+            let expected_result = if expected { 1 } else { 0 };
+            assert_eq!(
+                result.0, expected_result,
+                "{} < {} should be {}",
+                a, b, expected
+            );
+            assert_eq!(remainder.0, 0, "Remainder should always be 0");
+        }
+
+        // Random test cases
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..1000 {
+            let a = (rng.gen::<f64>() - 0.5) * 200.0;
+            let b = (rng.gen::<f64>() - 0.5) * 200.0;
+
+            let fixed_a = Fixed::from_f64(a);
+            let fixed_b = Fixed::from_f64(b);
+            let (result, remainder) = fixed_a.lt(&fixed_b);
+
+            let expected = a < b;
+            let expected_result = if expected { 1 } else { 0 };
+
+            assert_eq!(
+                result.0, expected_result,
+                "{} < {} should be {}",
+                a, b, expected
+            );
+            assert_eq!(remainder.0, 0, "Remainder should always be 0");
+        }
     fn test_different_scales() {
         // Test with 15-bit scale
         let scale_15 = Fixed::<15>::from_f64(1.5);
