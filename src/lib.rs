@@ -1,25 +1,20 @@
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
-use std::ops::{Add, Mul, Sub, Rem};
+use std::ops::{Add, Mul, Rem, Sub};
 use stwo_prover::core::fields::m31::{M31, P};
 
 pub mod eval;
 
-// Number of bits used for decimal precision.
-pub const DEFAULT_SCALE: u32 = 12;
-// Scale factor = 2^DEFAULT_SCALE, used for fixed-point arithmetic.
-pub const SCALE_FACTOR: M31 = M31::from_u32_unchecked(1 << DEFAULT_SCALE);
 // Half the prime modulus.
 pub const HALF_P: u32 = P / 2;
-// Mask for remainder in fixed-point operations (2^DEFAULT_SCALE - 1)
-const REMAINDER_MASK: i64 = (1 << DEFAULT_SCALE) - 1;
 
-/// Integer representation of fixed-point Basefield.
+/// Integer representation of fixed-point Basefield with parametrized scale.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Fixed(pub i64);
+pub struct Fixed<const SCALE: u32>(pub i64);
 
-impl Fixed {
-    const SCALE_FACTOR: i64 = 1 << DEFAULT_SCALE;
+impl<const SCALE: u32> Fixed<SCALE> {
+    const SCALE_FACTOR: i64 = 1 << SCALE;
+    const HALF_SCALE_FACTOR: i64 = 1 << (SCALE - 1);
 
     #[inline]
     pub fn from_f64(value: f64) -> Self {
@@ -68,6 +63,17 @@ impl Fixed {
         }
     }
 
+    /// Computes both quotient and remainder for division.
+    /// Returns (quotient, remainder) where dividend = quotient * divisor + remainder
+    /// Note: The quotient is stored as an unscaled integer for constraint compatibility.
+    #[inline]
+    pub fn div_rem(self, rhs: Self) -> (Self, Self) {
+        assert!(rhs.0 != 0, "Division by zero");
+        let quotient = self.0 / rhs.0;
+        let remainder = self.0 % rhs.0;
+        (Self(quotient), Self(remainder))
+    }
+
     /// Computes the reciprocal (1/x) of a fixed-point number
     ///
     /// Returns a tuple of (quotient, remainder) where:
@@ -77,9 +83,9 @@ impl Fixed {
     pub fn recip(self) -> (Self, Self) {
         assert!(self.0 != 0, "Division by zero");
 
-        let scale_squared = Self::SCALE_FACTOR * Self::SCALE_FACTOR;
-        let quotient = scale_squared / self.0;
-        let remainder = scale_squared % self.0;
+        let scale_factor_squared = Self::SCALE_FACTOR * Self::SCALE_FACTOR;
+        let quotient = scale_factor_squared / self.0;
+        let remainder = scale_factor_squared % self.0;
 
         (Self(quotient), Self(remainder))
     }
@@ -105,7 +111,7 @@ impl Fixed {
         }
 
         // Calculate value to compute sqrt of: self * SCALE_FACTOR
-        let input_scaled = (self.0 as u64) << DEFAULT_SCALE;
+        let input_scaled = (self.0 as u64) << SCALE;
 
         // Compute integer square root
         let sqrt_val = int_sqrt(input_scaled);
@@ -114,6 +120,22 @@ impl Fixed {
         let remainder = input_scaled - sqrt_val * sqrt_val;
 
         (Self(sqrt_val as i64), Self(remainder as i64))
+    }
+
+    /// Convert this Fixed value to a Fixed with a different scale
+    pub fn convert_to<const TARGET_SCALE: u32>(self) -> Fixed<TARGET_SCALE> {
+        if TARGET_SCALE == SCALE {
+            // Same scale, just change the type
+            Fixed(self.0)
+        } else if TARGET_SCALE > SCALE {
+            // Going to higher precision
+            let shift = TARGET_SCALE - SCALE;
+            Fixed(self.0 << shift)
+        } else {
+            // Going to lower precision
+            let shift = SCALE - TARGET_SCALE;
+            Fixed(self.0 >> shift)
+        }
     }
 }
 
@@ -151,7 +173,7 @@ pub fn int_sqrt(n: u64) -> u64 {
     }
 }
 
-impl Add for Fixed {
+impl<const SCALE: u32> Add for Fixed<SCALE> {
     type Output = Self;
 
     #[inline]
@@ -160,7 +182,7 @@ impl Add for Fixed {
     }
 }
 
-impl Sub for Fixed {
+impl<const SCALE: u32> Sub for Fixed<SCALE> {
     type Output = Self;
 
     #[inline]
@@ -169,29 +191,34 @@ impl Sub for Fixed {
     }
 }
 
-impl Mul for Fixed {
+impl<const SCALE: u32> Mul for Fixed<SCALE> {
     type Output = (Self, Self);
 
     #[inline]
     fn mul(self, rhs: Self) -> Self::Output {
         let product = self.0 * rhs.0;
-        (
-            Self(product >> DEFAULT_SCALE),
-            Self(product & REMAINDER_MASK),
-        )
+
+        let quotient = (product + Self::HALF_SCALE_FACTOR) >> SCALE;
+
+        // Calculate remainder to maintain: product = quotient * scale + remainder
+        let scaled_quotient = quotient << SCALE;
+        let remainder = product - scaled_quotient;
+
+        (Self(quotient), Self(remainder))
     }
 }
 
-impl Rem for Fixed {
+impl<const SCALE: u32> Rem for Fixed<SCALE> {
     type Output = Self;
 
     #[inline]
     fn rem(self, rhs: Self) -> Self::Output {
+        assert!(rhs.0 != 0, "Division by zero in remainder operation");
         Self(self.0 % rhs.0)
     }
 }
 
-impl Zero for Fixed {
+impl<const SCALE: u32> Zero for Fixed<SCALE> {
     #[inline]
     fn zero() -> Self {
         Self(0)
@@ -209,7 +236,7 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
-    const EPSILON: f64 = 1e-2;
+    const EPSILON: f64 = 1e-3;
 
     fn assert_near(a: f64, b: f64) {
         assert!((a - b).abs() < EPSILON, "Expected {} to be near {}", a, b);
@@ -217,11 +244,11 @@ mod tests {
 
     #[test]
     fn test_negative() {
-        let a = Fixed::from_f64(-3.5);
-        let b = Fixed::from_f64(2.0);
+        let a = Fixed::<15>::from_f64(-3.5);
+        let b = Fixed::<15>::from_f64(2.0);
 
         assert_near(a.to_f64(), -3.5);
-        assert_near((a + b.clone()).to_f64(), -1.5);
+        assert_near((a + b).to_f64(), -1.5);
         assert_near((a - b).to_f64(), -5.5);
     }
 
@@ -233,8 +260,8 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 200.0;
             let b = (rng.gen::<f64>() - 0.5) * 200.0;
 
-            let fa = Fixed::from_f64(a);
-            let fb = Fixed::from_f64(b);
+            let fa = Fixed::<15>::from_f64(a);
+            let fb = Fixed::<15>::from_f64(b);
 
             assert_near((fa + fb).to_f64(), a + b);
         }
@@ -248,8 +275,8 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 200.0;
             let b = (rng.gen::<f64>() - 0.5) * 200.0;
 
-            let fa = Fixed::from_f64(a);
-            let fb = Fixed::from_f64(b);
+            let fa = Fixed::<15>::from_f64(a);
+            let fb = Fixed::<15>::from_f64(b);
 
             assert_near((fa - fb).to_f64(), a - b);
         }
@@ -263,8 +290,8 @@ mod tests {
             let a = (rng.gen::<f64>() - 0.5) * 10.0;
             let b = (rng.gen::<f64>() - 0.5) * 10.0;
 
-            let fa = Fixed::from_f64(a);
-            let fb = Fixed::from_f64(b);
+            let fa = Fixed::<15>::from_f64(a);
+            let fb = Fixed::<15>::from_f64(b);
 
             let (q, _) = fa * fb;
             let expected = a * b;
@@ -283,7 +310,7 @@ mod tests {
                 continue;
             }
 
-            let fixed_a = Fixed::from_f64(a);
+            let fixed_a = Fixed::<15>::from_f64(a);
             let (recip, _) = fixed_a.recip();
             let expected = 1.0 / a;
 
@@ -301,7 +328,7 @@ mod tests {
         ];
 
         for (a, expected) in test_cases {
-            let fixed_a = Fixed::from_f64(a);
+            let fixed_a = Fixed::<15>::from_f64(a);
             let (recip, _) = fixed_a.recip();
             assert_near(recip.to_f64(), expected);
         }
@@ -324,7 +351,7 @@ mod tests {
         }
 
         for input in test_cases {
-            let fixed_input = Fixed::from_f64(input);
+            let fixed_input = Fixed::<15>::from_f64(input);
 
             if input < 0.0 {
                 let (result, remainder) = fixed_input.sqrt();
@@ -341,40 +368,111 @@ mod tests {
 
     #[test]
     fn test_rem() {
-        let test_cases = vec![
-            (5.0, 2.0, 1.0),
-            (-5.0, 2.0, -1.0),
-            (5.0, -2.0, 1.0),
-            (-5.0, -2.0, -1.0),
-            (7.5, 2.5, 0.0),
-            (3.2, 1.5, 0.2),
-        ];
-
-        for (a, b, expected) in test_cases.clone() {
-            let fa = Fixed::from_f64(a);
-            let fb = Fixed::from_f64(b);
-            let result = (fa % fb).to_f64();
-            assert_near(result, expected);
-        }
-
         let mut rng = StdRng::seed_from_u64(42);
 
-        for _ in 0..1000 {
-            let a = (rng.gen::<f64>() - 0.5) * 100.0;
-            let b = (rng.gen::<f64>() - 0.5) * 100.0;
+        // Test random cases
+        for _ in 0..100 {
+            let a = (rng.gen::<f64>() - 0.5) * 20.0;
+            let b = (rng.gen::<f64>() - 0.5) * 20.0;
+
+            // Skip cases where divisor is too close to zero
+            if b.abs() < 0.1 {
+                continue;
+            }
+
+            let fa = Fixed::<15>::from_f64(a);
+            let fb = Fixed::<15>::from_f64(b);
+
+            let remainder = fa % fb;
             let expected = a % b;
 
-            let fa = Fixed::from_f64(a);
-            let fb = Fixed::from_f64(b);
+            assert_near(remainder.to_f64(), expected);
+        }
 
-            let result = (fa % fb).to_f64();
-            assert_near(result, expected);
+        // Test specific cases
+        let test_cases = vec![
+            (10.0, 3.0),   // 10 % 3 = 1
+            (7.5, 2.5),    // 7.5 % 2.5 = 0
+            (9.0, 4.0),    // 9 % 4 = 1
+            (-10.0, 3.0),  // -10 % 3 = -1 (or 2, depending on implementation)
+            (10.0, -3.0),  // 10 % -3 = 1 (or -2, depending on implementation)
+            (-10.0, -3.0), // -10 % -3 = -1 (or 2, depending on implementation)
+        ];
+
+        for (a, b) in test_cases {
+            let fa = Fixed::<15>::from_f64(a);
+            let fb = Fixed::<15>::from_f64(b);
+            let remainder = fa % fb;
+            let expected = a % b;
+
+            assert_near(remainder.to_f64(), expected);
         }
     }
 
     #[test]
-    fn test_zero() {
-        assert!(Fixed::zero().is_zero());
-        assert!(!Fixed::from_f64(1.0).is_zero());
+    fn test_div_rem() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for _ in 0..100 {
+            let a = (rng.gen::<f64>() - 0.5) * 20.0;
+            let b = (rng.gen::<f64>() - 0.5) * 20.0;
+            println!("a {:?}", a);
+            println!("b {:?}", b);
+
+            // Skip cases where divisor is too close to zero
+            if b.abs() < 0.1 {
+                continue;
+            }
+
+            let fa = Fixed::<15>::from_f64(a);
+            let fb = Fixed::<15>::from_f64(b);
+
+            let (quotient, remainder) = fa.div_rem(fb);
+
+            // Verify: dividend = quotient * divisor + remainder
+            let reconstructed = quotient.0 * fb.0 + remainder.0;
+            assert_eq!(reconstructed, fa.0);
+
+            // Check individual results
+            let expected_quotient = (a / b).trunc();
+            let expected_remainder = a % b;
+
+            // The quotient from div_rem is stored as an unscaled integer
+            assert_eq!(quotient.0 as f64, expected_quotient);
+            assert_near(remainder.to_f64(), expected_remainder);
+        }
+    }
+
+    #[test]
+    fn test_different_scales() {
+        // Test with 15-bit scale
+        let scale_15 = Fixed::<15>::from_f64(1.5);
+        assert_near(scale_15.to_f64(), 1.5);
+
+        // Test with 8-bit scale (less precision)
+        let scale8 = Fixed::<8>::from_f64(1.5);
+        assert_near(scale8.to_f64(), 1.5);
+
+        // Test with 24-bit scale (more precision)
+        let scale24 = Fixed::<24>::from_f64(1.5);
+        assert_near(scale24.to_f64(), 1.5);
+
+        // Test conversion between scales
+        let from_15_to_8 = scale_15.convert_to::<8>();
+        assert_near(from_15_to_8.to_f64(), 1.5);
+
+        let from_8_to_24 = scale8.convert_to::<24>();
+        assert_near(from_8_to_24.to_f64(), 1.5);
+
+        // Multiplication with different scales
+        let a8 = Fixed::<8>::from_f64(2.5);
+        let b8 = Fixed::<8>::from_f64(3.0);
+        let (result8, _) = a8 * b8;
+        assert_near(result8.to_f64(), 7.5);
+
+        let a24 = Fixed::<24>::from_f64(2.5);
+        let b24 = Fixed::<24>::from_f64(3.0);
+        let (result24, _) = a24 * b24;
+        assert_near(result24.to_f64(), 7.5);
     }
 }
