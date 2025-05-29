@@ -123,8 +123,8 @@ mod tests {
         },
     };
 
-    use super::*;
     use crate::Fixed;
+    use super::*;
 
     struct TestEval<const SCALE: u32 = 15> {
         log_size: u32,
