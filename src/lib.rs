@@ -1,6 +1,6 @@
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, Mul, Rem, Sub};
 use stwo_prover::core::fields::m31::{M31, P};
 
 pub mod eval;
@@ -63,6 +63,17 @@ impl<const SCALE: u32> Fixed<SCALE> {
         }
     }
 
+    /// Computes both quotient and remainder for division.
+    /// Returns (quotient, remainder) where dividend = quotient * divisor + remainder
+    /// Note: The quotient is stored as an unscaled integer for constraint compatibility.
+    #[inline]
+    pub fn div_rem(self, rhs: Self) -> (Self, Self) {
+        assert!(rhs.0 != 0, "Division by zero");
+        let quotient = self.0 / rhs.0;
+        let remainder = self.0 % rhs.0;
+        (Self(quotient), Self(remainder))
+    }
+
     /// Computes the reciprocal (1/x) of a fixed-point number
     ///
     /// Returns a tuple of (quotient, remainder) where:
@@ -108,10 +119,7 @@ impl<const SCALE: u32> Fixed<SCALE> {
         // Calculate remainder (input_scaled - sqrt_val^2)
         let remainder = input_scaled - sqrt_val * sqrt_val;
 
-        (
-            Self(sqrt_val as i64),
-            Self(remainder as i64),
-        )
+        (Self(sqrt_val as i64), Self(remainder as i64))
     }
 
     /// Convert this Fixed value to a Fixed with a different scale
@@ -197,6 +205,16 @@ impl<const SCALE: u32> Mul for Fixed<SCALE> {
         let remainder = product - scaled_quotient;
 
         (Self(quotient), Self(remainder))
+    }
+}
+
+impl<const SCALE: u32> Rem for Fixed<SCALE> {
+    type Output = Self;
+
+    #[inline]
+    fn rem(self, rhs: Self) -> Self::Output {
+        assert!(rhs.0 != 0, "Division by zero in remainder operation");
+        Self(self.0 % rhs.0)
     }
 }
 
@@ -345,6 +363,83 @@ mod tests {
             let (result, _) = fixed_input.sqrt();
             let result_f64 = result.to_f64();
             assert_near(result_f64, input.sqrt());
+        }
+    }
+
+    #[test]
+    fn test_rem() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        // Test random cases
+        for _ in 0..100 {
+            let a = (rng.gen::<f64>() - 0.5) * 20.0;
+            let b = (rng.gen::<f64>() - 0.5) * 20.0;
+
+            // Skip cases where divisor is too close to zero
+            if b.abs() < 0.1 {
+                continue;
+            }
+
+            let fa = Fixed::<15>::from_f64(a);
+            let fb = Fixed::<15>::from_f64(b);
+
+            let remainder = fa % fb;
+            let expected = a % b;
+
+            assert_near(remainder.to_f64(), expected);
+        }
+
+        // Test specific cases
+        let test_cases = vec![
+            (10.0, 3.0),   // 10 % 3 = 1
+            (7.5, 2.5),    // 7.5 % 2.5 = 0
+            (9.0, 4.0),    // 9 % 4 = 1
+            (-10.0, 3.0),  // -10 % 3 = -1 (or 2, depending on implementation)
+            (10.0, -3.0),  // 10 % -3 = 1 (or -2, depending on implementation)
+            (-10.0, -3.0), // -10 % -3 = -1 (or 2, depending on implementation)
+        ];
+
+        for (a, b) in test_cases {
+            let fa = Fixed::<15>::from_f64(a);
+            let fb = Fixed::<15>::from_f64(b);
+            let remainder = fa % fb;
+            let expected = a % b;
+
+            assert_near(remainder.to_f64(), expected);
+        }
+    }
+
+    #[test]
+    fn test_div_rem() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for _ in 0..100 {
+            let a = (rng.gen::<f64>() - 0.5) * 20.0;
+            let b = (rng.gen::<f64>() - 0.5) * 20.0;
+            println!("a {:?}", a);
+            println!("b {:?}", b);
+
+            // Skip cases where divisor is too close to zero
+            if b.abs() < 0.1 {
+                continue;
+            }
+
+            let fa = Fixed::<15>::from_f64(a);
+            let fb = Fixed::<15>::from_f64(b);
+
+            let (quotient, remainder) = fa.div_rem(fb);
+
+            // Verify: dividend = quotient * divisor + remainder
+            let reconstructed = quotient.0 * fb.0 + remainder.0;
+            assert_eq!(reconstructed, fa.0);
+
+            // Check individual results
+            let expected_quotient = (a / b).trunc();
+            let expected_remainder = a % b;
+
+            // The quotient from div_rem is stored as an unscaled integer
+            assert_eq!(quotient.0 as f64, expected_quotient);
+            assert_near(remainder.to_f64(), expected_remainder);
         }
     }
 

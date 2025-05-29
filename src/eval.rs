@@ -45,6 +45,19 @@ pub trait EvalFixedPoint: EvalAtRow {
         self.add_constraint(remainder + aux - (divisor - Self::F::one()));
     }
 
+    /// Evaluates remainder constraints for fixed-point numbers.
+    /// Constrains: dividend = quotient * divisor + remainder
+    /// This is essentially the same as eval_fixed_div_rem but semantically focused on remainder.
+    fn eval_fixed_rem(
+        &mut self,
+        dividend: Self::F,
+        divisor: Self::F,
+        quotient: Self::F,
+        remainder: Self::F,
+    ) {
+        self.eval_fixed_div_rem(dividend, divisor, quotient, remainder);
+    }
+
     /// Evaluates reciprocal constraints for fixed-point numbers.
     /// Constrains: scale_factor * scale_factor = value * reciprocal + remainder
     fn eval_fixed_recip(
@@ -123,6 +136,7 @@ mod tests {
         Add,
         Sub,
         Mul,
+        Rem,
         Recip,
         Sqrt,
     }
@@ -158,6 +172,13 @@ mod tests {
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
                     eval.eval_fixed_mul(lhs, rhs, scale_factor, out, rem)
+                }
+                Op::Rem => {
+                    let dividend = eval.next_trace_mask();
+                    let divisor = eval.next_trace_mask();
+                    let quotient = eval.next_trace_mask();
+                    let remainder = eval.next_trace_mask();
+                    eval.eval_fixed_rem(dividend, divisor, quotient, remainder)
                 }
                 Op::Recip => {
                     let input = eval.next_trace_mask();
@@ -318,6 +339,45 @@ mod tests {
             let (expected, rem) = fixed_a * fixed_b;
 
             test_op_internal(Op::Mul, &[fixed_a, fixed_b], &[expected, rem], 2);
+        }
+    }
+
+    #[test]
+    fn test_rem() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        // Test regular remainder cases
+        for _ in 0..50 {
+            let a = Fixed::<15>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let b = Fixed::<15>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+
+            // Skip cases where divisor is too close to zero
+            if b.to_f64().abs() < 0.1 {
+                continue;
+            }
+
+            let (quotient, remainder) = a.div_rem(b);
+
+            test_op_internal(Op::Rem, &[a, b], &[quotient, remainder], 2);
+        }
+
+        // Test special cases
+        let special_cases = vec![
+            (10.0, 3.0), // 10 % 3 = 1, quotient = 3
+            (7.5, 2.5),  // 7.5 % 2.5 = 0, quotient = 3
+            (9.0, 4.0),  // 9 % 4 = 1, quotient = 2
+            (8.0, 3.0),  // 8 % 3 = 2, quotient = 2
+            (15.0, 4.0), // 15 % 4 = 3, quotient = 3
+            (20.0, 6.0), // 20 % 6 = 2, quotient = 3
+            (1.5, 0.5),  // 1.5 % 0.5 = 0, quotient = 3
+        ];
+
+        for (a, b) in special_cases {
+            let fixed_a = Fixed::<15>::from_f64(a);
+            let fixed_b = Fixed::<15>::from_f64(b);
+            let (quotient, remainder) = fixed_a.div_rem(fixed_b);
+
+            test_op_internal(Op::Rem, &[fixed_a, fixed_b], &[quotient, remainder], 2);
         }
     }
 
