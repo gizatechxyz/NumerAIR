@@ -1,7 +1,7 @@
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Mul, Rem, Sub};
-use stwo_prover::core::fields::m31::{M31, P};
+use stwo::core::fields::m31::{M31, P};
 
 pub mod eval;
 

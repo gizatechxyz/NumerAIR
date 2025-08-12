@@ -1,6 +1,7 @@
 use crate::HALF_P;
 use num_traits::One;
-use stwo_prover::{constraint_framework::EvalAtRow, core::fields::m31::M31};
+use stwo::core::fields::m31::M31;
+use stwo_constraint_framework::EvalAtRow;
 
 /// Extension trait for EvalAtRow to support fixed-point arithmetic constraint evaluation
 pub trait EvalFixedPoint: EvalAtRow {
@@ -107,24 +108,44 @@ impl<T: EvalAtRow> EvalFixedPoint for T {}
 mod tests {
     use num_traits::Zero;
     use rand::{rngs::StdRng, Rng, SeedableRng};
-    use stwo_prover::{
-        constraint_framework::{self, preprocessed_columns::IsFirst, FrameworkEval},
+    use stwo::prover::backend::{simd::SimdBackend, Column};
+    use stwo::{
         core::{
-            backend::{simd::SimdBackend, Col, Column},
             fields::{
                 m31::{BaseField, M31, P},
                 qm31::SecureField,
             },
             pcs::TreeVec,
-            poly::{
-                circle::{CanonicCoset, CircleEvaluation},
-                BitReversedOrder,
-            },
+            poly::circle::CanonicCoset,
+        },
+        prover::{
+            backend::Col,
+            poly::{circle::CircleEvaluation, BitReversedOrder},
         },
     };
+    use stwo_constraint_framework::{self, FrameworkEval};
 
-    use crate::Fixed;
     use super::*;
+    use crate::Fixed;
+
+    /// A column with `1` at the first position, and `0` elsewhere.
+    #[derive(Debug, Clone)]
+    pub struct IsFirst {
+        pub log_size: u32,
+    }
+    impl IsFirst {
+        pub const fn new(log_size: u32) -> Self {
+            Self { log_size }
+        }
+
+        pub fn gen_column_simd(
+            &self,
+        ) -> CircleEvaluation<SimdBackend, BaseField, BitReversedOrder> {
+            let mut col = Col::<SimdBackend, BaseField>::zeros(1 << self.log_size);
+            col.set(0, BaseField::one());
+            CircleEvaluation::new(CanonicCoset::new(self.log_size).circle_domain(), col)
+        }
+    }
 
     struct TestEval<const SCALE: u32 = 15> {
         log_size: u32,
@@ -246,7 +267,7 @@ mod tests {
         };
 
         // Test valid trace
-        constraint_framework::assert_constraints_on_polys(
+        stwo_constraint_framework::assert_constraints_on_polys(
             &trace_polys,
             domain,
             |eval| {
@@ -273,7 +294,7 @@ mod tests {
 
         // This should panic for invalid trace
         let result = std::panic::catch_unwind(|| {
-            constraint_framework::assert_constraints_on_polys(
+            stwo_constraint_framework::assert_constraints_on_polys(
                 &invalid_trace_polys,
                 domain,
                 |eval| {
