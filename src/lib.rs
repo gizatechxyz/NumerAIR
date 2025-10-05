@@ -321,11 +321,212 @@ impl Fixed {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
 
     const EPSILON: f64 = 1e-3;
 
     fn assert_near(a: f64, b: f64) {
         assert!((a - b).abs() < EPSILON, "Expected {} to be near {}", a, b);
+    }
+
+    #[test]
+    fn test_negative() {
+        let a = Fixed::from_f64(-3.5, 15);
+        let b = Fixed::from_f64(2.0, 15);
+
+        assert_near(a.to_f64(), -3.5);
+        assert_near((a + b).to_f64(), -1.5);
+        assert_near((a - b).to_f64(), -5.5);
+    }
+
+    #[test]
+    fn test_add() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for _ in 0..1000 {
+            let a = (rng.gen::<f64>() - 0.5) * 200.0;
+            let b = (rng.gen::<f64>() - 0.5) * 200.0;
+
+            let fa = Fixed::from_f64(a, 15);
+            let fb = Fixed::from_f64(b, 15);
+
+            assert_near((fa + fb).to_f64(), a + b);
+        }
+    }
+
+    #[test]
+    fn test_sub() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for _ in 0..1000 {
+            let a = (rng.gen::<f64>() - 0.5) * 200.0;
+            let b = (rng.gen::<f64>() - 0.5) * 200.0;
+
+            let fa = Fixed::from_f64(a, 15);
+            let fb = Fixed::from_f64(b, 15);
+
+            assert_near((fa - fb).to_f64(), a - b);
+        }
+    }
+
+    #[test]
+    fn test_mul() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for _ in 0..1000 {
+            let a = (rng.gen::<f64>() - 0.5) * 10.0;
+            let b = (rng.gen::<f64>() - 0.5) * 10.0;
+
+            let fa = Fixed::from_f64(a, 15);
+            let fb = Fixed::from_f64(b, 15);
+
+            let (q, _) = fa * fb;
+            let expected = a * b;
+
+            assert_near(q.to_f64(), expected);
+        }
+    }
+
+    #[test]
+    fn test_recip() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for _ in 0..100 {
+            let a = (rng.gen::<f64>() - 0.5) * 10.0;
+            if a.abs() < 0.1 {
+                continue;
+            }
+
+            let fixed_a = Fixed::from_f64(a, 15);
+            let (recip, _) = fixed_a.recip();
+            let expected = 1.0 / a;
+
+            assert_near(recip.to_f64(), expected);
+        }
+
+        // Test specific cases
+        let test_cases = vec![
+            (1.0, 1.0),   // Reciprocal of 1 is 1
+            (2.0, 0.5),   // Reciprocal of 2 is 0.5
+            (0.5, 2.0),   // Reciprocal of 0.5 is 2
+            (4.0, 0.25),  // Reciprocal of 4 is 0.25
+            (-1.0, -1.0), // Reciprocal of -1 is -1
+            (-2.0, -0.5), // Reciprocal of -2 is -0.5
+        ];
+
+        for (a, expected) in test_cases {
+            let fixed_a = Fixed::from_f64(a, 15);
+            let (recip, _) = fixed_a.recip();
+            assert_near(recip.to_f64(), expected);
+        }
+    }
+
+    #[test]
+    fn test_sqrt() {
+        let mut test_cases = vec![
+            0.0, 1.0, 4.0, 9.0, 10.0, 16.0, 25.0, 81.0, 100.0, 0.25, 0.0625, 0.01, 5.0, 8.0, 12.0,
+            15.0, 20.0, 50.0, 10000.0, 1000000.0, // Large value
+            1e-10,     // Small value
+            0.001,     // rest irrationals
+            0.5, 2.0, 3.0, 42.0, // Nod to Douglas Adams
+        ];
+
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..200 {
+            let value: f64 = rng.gen_range(0.01..50.0);
+            test_cases.push(value);
+        }
+
+        for input in test_cases {
+            let fixed_input = Fixed::from_f64(input, 15);
+
+            if input < 0.0 {
+                let (result, remainder) = fixed_input.sqrt();
+                assert_eq!(result.value, 0);
+                assert_eq!(remainder.value, 0);
+                continue;
+            }
+
+            let (result, _) = fixed_input.sqrt();
+            let result_f64 = result.to_f64();
+            assert_near(result_f64, input.sqrt());
+        }
+    }
+
+    #[test]
+    fn test_rem() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        // Test random cases
+        for _ in 0..100 {
+            let a = (rng.gen::<f64>() - 0.5) * 20.0;
+            let b = (rng.gen::<f64>() - 0.5) * 20.0;
+
+            // Skip cases where divisor is too close to zero
+            if b.abs() < 0.1 {
+                continue;
+            }
+
+            let fa = Fixed::from_f64(a, 15);
+            let fb = Fixed::from_f64(b, 15);
+
+            let remainder = fa % fb;
+            let expected = a % b;
+
+            assert_near(remainder.to_f64(), expected);
+        }
+
+        // Test specific cases
+        let test_cases = vec![
+            (10.0, 3.0),   // 10 % 3 = 1
+            (7.5, 2.5),    // 7.5 % 2.5 = 0
+            (9.0, 4.0),    // 9 % 4 = 1
+            (-10.0, 3.0),  // -10 % 3 = -1 (or 2, depending on implementation)
+            (10.0, -3.0),  // 10 % -3 = 1 (or -2, depending on implementation)
+            (-10.0, -3.0), // -10 % -3 = -1 (or 2, depending on implementation)
+        ];
+
+        for (a, b) in test_cases {
+            let fa = Fixed::from_f64(a, 15);
+            let fb = Fixed::from_f64(b, 15);
+            let remainder = fa % fb;
+            let expected = a % b;
+
+            assert_near(remainder.to_f64(), expected);
+        }
+    }
+
+    #[test]
+    fn test_div_rem() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for _ in 0..100 {
+            let a = (rng.gen::<f64>() - 0.5) * 20.0;
+            let b = (rng.gen::<f64>() - 0.5) * 20.0;
+
+            // Skip cases where divisor is too close to zero
+            if b.abs() < 0.1 {
+                continue;
+            }
+
+            let fa = Fixed::from_f64(a, 15);
+            let fb = Fixed::from_f64(b, 15);
+
+            let (quotient, remainder) = fa.div_rem(fb);
+
+            // Verify: dividend = quotient * divisor + remainder
+            let reconstructed = quotient.value * fb.value + remainder.value;
+            assert_eq!(reconstructed, fa.value);
+
+            // Check individual results
+            let expected_quotient = (a / b).trunc();
+            let expected_remainder = a % b;
+
+            // The quotient from div_rem is stored as an unscaled integer
+            assert_eq!(quotient.value as f64, expected_quotient);
+            assert_near(remainder.to_f64(), expected_remainder);
+        }
     }
 
     #[test]
