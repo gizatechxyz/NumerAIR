@@ -2,7 +2,8 @@ use crate::{HALF_P, SCALE_FACTOR};
 use num_traits::{One, Zero};
 use crate::HALF_P;
 use num_traits::One;
-use stwo_prover::{constraint_framework::EvalAtRow, core::fields::m31::M31};
+use stwo::core::fields::m31::M31;
+use stwo_constraint_framework::EvalAtRow;
 
 /// Extension trait for EvalAtRow to support fixed-point arithmetic constraint evaluation
 pub trait EvalFixedPoint: EvalAtRow {
@@ -45,6 +46,19 @@ pub trait EvalFixedPoint: EvalAtRow {
         // Auxiliary variable to enforce remainder < divisor:
         let aux = self.add_intermediate(divisor.clone() - Self::F::one() - remainder.clone());
         self.add_constraint(remainder + aux - (divisor - Self::F::one()));
+    }
+
+    /// Evaluates remainder constraints for fixed-point numbers.
+    /// Constrains: dividend = quotient * divisor + remainder
+    /// This is essentially the same as eval_fixed_div_rem but semantically focused on remainder.
+    fn eval_fixed_rem(
+        &mut self,
+        dividend: Self::F,
+        divisor: Self::F,
+        quotient: Self::F,
+        remainder: Self::F,
+    ) {
+        self.eval_fixed_div_rem(dividend, divisor, quotient, remainder);
     }
 
     /// Evaluates reciprocal constraints for fixed-point numbers.
@@ -132,28 +146,49 @@ impl<T: EvalAtRow> EvalFixedPoint for T {}
 mod tests {
     use num_traits::Zero;
     use rand::{rngs::StdRng, Rng, SeedableRng};
-    use stwo_prover::{
-        constraint_framework::{self, preprocessed_columns::IsFirst, FrameworkEval},
+    use stwo::prover::backend::{simd::SimdBackend, Column};
+    use stwo::{
         core::{
-            backend::{simd::SimdBackend, Col, Column},
             fields::{
                 m31::{BaseField, M31, P},
                 qm31::SecureField,
             },
             pcs::TreeVec,
-            poly::{
-                circle::{CanonicCoset, CircleEvaluation},
-                BitReversedOrder,
-            },
+            poly::circle::CanonicCoset,
+        },
+        prover::{
+            backend::Col,
+            poly::{circle::CircleEvaluation, BitReversedOrder},
         },
     };
+    use stwo_constraint_framework::{self, FrameworkEval};
 
-    use crate::Fixed;
     use super::*;
+    use crate::Fixed;
 
-    struct TestEval<const SCALE: u32 = 15> {
+    /// A column with `1` at the first position, and `0` elsewhere.
+    #[derive(Debug, Clone)]
+    pub struct IsFirst {
+        pub log_size: u32,
+    }
+    impl IsFirst {
+        pub const fn new(log_size: u32) -> Self {
+            Self { log_size }
+        }
+
+        pub fn gen_column_simd(
+            &self,
+        ) -> CircleEvaluation<SimdBackend, BaseField, BitReversedOrder> {
+            let mut col = Col::<SimdBackend, BaseField>::zeros(1 << self.log_size);
+            col.set(0, BaseField::one());
+            CircleEvaluation::new(CanonicCoset::new(self.log_size).circle_domain(), col)
+        }
+    }
+
+    struct TestEval {
         log_size: u32,
         op: Op,
+        scale: u32,
     }
 
     #[derive(Clone, Copy)]
@@ -161,12 +196,13 @@ mod tests {
         Add,
         Sub,
         Mul,
+        Rem,
         Recip,
         Sqrt,
         Lt,
     }
 
-    impl<const SCALE: u32> FrameworkEval for TestEval<SCALE> {
+    impl FrameworkEval for TestEval {
         fn log_size(&self) -> u32 {
             self.log_size
         }
@@ -176,7 +212,7 @@ mod tests {
         }
 
         fn evaluate<E: EvalAtRow>(&self, mut eval: E) -> E {
-            let scale_factor = E::F::from(M31::from_u32_unchecked(1 << SCALE));
+            let scale_factor = E::F::from(M31::from_u32_unchecked(1 << self.scale));
 
             match self.op {
                 Op::Add => {
@@ -197,6 +233,13 @@ mod tests {
                     let out = eval.next_trace_mask();
                     let rem = eval.next_trace_mask();
                     eval.eval_fixed_mul(lhs, rhs, scale_factor, out, rem)
+                }
+                Op::Rem => {
+                    let dividend = eval.next_trace_mask();
+                    let divisor = eval.next_trace_mask();
+                    let quotient = eval.next_trace_mask();
+                    let remainder = eval.next_trace_mask();
+                    eval.eval_fixed_rem(dividend, divisor, quotient, remainder)
                 }
                 Op::Recip => {
                     let input = eval.next_trace_mask();
@@ -236,10 +279,10 @@ mod tests {
             .collect()
     }
 
-    fn test_op_internal<const SCALE: u32>(
+    fn test_op_internal(
         op: Op,
-        inputs: &[Fixed<SCALE>],
-        expected_outputs: &[Fixed<SCALE>],
+        inputs: &[Fixed],
+        expected_outputs: &[Fixed],
         tamper_col_idx: usize,
     ) {
         const LOG_SIZE: u32 = 4;
@@ -264,13 +307,14 @@ mod tests {
 
         let trace_polys = trace.map_cols(|c| c.interpolate());
 
-        let component = TestEval::<SCALE> {
+        let component = TestEval {
             log_size: LOG_SIZE,
             op,
+            scale: 15, // Default scale for tests
         };
 
         // Test valid trace
-        constraint_framework::assert_constraints_on_polys(
+        stwo_constraint_framework::assert_constraints_on_polys(
             &trace_polys,
             domain,
             |eval| {
@@ -284,7 +328,7 @@ mod tests {
         if let Some(col) = invalid_trace_cols.get_mut(tamper_col_idx) {
             for val in col.iter_mut() {
                 // Calculate scale factor for tampering
-                let scale_factor = M31::from_u32_unchecked(1 << SCALE);
+                let scale_factor = M31::from_u32_unchecked(1 << 15); // Default scale
                 val.0 = (val.0 + scale_factor.0) % P;
             }
         }
@@ -297,7 +341,7 @@ mod tests {
 
         // This should panic for invalid trace
         let result = std::panic::catch_unwind(|| {
-            constraint_framework::assert_constraints_on_polys(
+            stwo_constraint_framework::assert_constraints_on_polys(
                 &invalid_trace_polys,
                 domain,
                 |eval| {
@@ -313,8 +357,8 @@ mod tests {
     fn test_add() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
-            let a = Fixed::<15>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = Fixed::<15>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0, 15);
+            let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0, 15);
 
             test_op_internal(Op::Add, &[a, b], &[a + b], 2);
         }
@@ -324,8 +368,8 @@ mod tests {
     fn test_sub() {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
-            let a = Fixed::<15>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = Fixed::<15>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0, 15);
+            let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0, 15);
 
             test_op_internal(Op::Sub, &[a, b], &[a - b], 2);
         }
@@ -337,8 +381,8 @@ mod tests {
 
         // Test regular multiplication cases
         for _ in 0..100 {
-            let a = Fixed::<15>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            let b = Fixed::<15>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
+            let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0, 15);
+            let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0, 15);
             let (expected, rem) = a * b;
 
             test_op_internal(Op::Mul, &[a, b], &[expected, rem], 2);
@@ -358,11 +402,50 @@ mod tests {
         ];
 
         for (a, b) in special_cases {
-            let fixed_a = Fixed::<15>::from_f64(a);
-            let fixed_b = Fixed::<15>::from_f64(b);
+            let fixed_a = Fixed::from_f64(a, 15);
+            let fixed_b = Fixed::from_f64(b, 15);
             let (expected, rem) = fixed_a * fixed_b;
 
             test_op_internal(Op::Mul, &[fixed_a, fixed_b], &[expected, rem], 2);
+        }
+    }
+
+    #[test]
+    fn test_rem() {
+        let mut rng = StdRng::seed_from_u64(42);
+
+        // Test regular remainder cases
+        for _ in 0..50 {
+            let a = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0, 15);
+            let b = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0, 15);
+
+            // Skip cases where divisor is too close to zero
+            if b.to_f64().abs() < 0.1 {
+                continue;
+            }
+
+            let (quotient, remainder) = a.div_rem(b);
+
+            test_op_internal(Op::Rem, &[a, b], &[quotient, remainder], 2);
+        }
+
+        // Test special cases
+        let special_cases = vec![
+            (10.0, 3.0), // 10 % 3 = 1, quotient = 3
+            (7.5, 2.5),  // 7.5 % 2.5 = 0, quotient = 3
+            (9.0, 4.0),  // 9 % 4 = 1, quotient = 2
+            (8.0, 3.0),  // 8 % 3 = 2, quotient = 2
+            (15.0, 4.0), // 15 % 4 = 3, quotient = 3
+            (20.0, 6.0), // 20 % 6 = 2, quotient = 3
+            (1.5, 0.5),  // 1.5 % 0.5 = 0, quotient = 3
+        ];
+
+        for (a, b) in special_cases {
+            let fixed_a = Fixed::from_f64(a, 15);
+            let fixed_b = Fixed::from_f64(b, 15);
+            let (quotient, remainder) = fixed_a.div_rem(fixed_b);
+
+            test_op_internal(Op::Rem, &[fixed_a, fixed_b], &[quotient, remainder], 2);
         }
     }
 
@@ -372,8 +455,8 @@ mod tests {
 
         // Test regular recip cases
         for _ in 0..100 {
-            let input = Fixed::<15>::from_f64((rng.gen::<f64>() - 0.5) * 200.0);
-            if input.0 == 0 {
+            let input = Fixed::from_f64((rng.gen::<f64>() - 0.5) * 200.0, 15);
+            if input.value == 0 {
                 continue; // Skip division by zero
             }
 
@@ -393,7 +476,7 @@ mod tests {
         ];
 
         for input in special_cases {
-            let fixed_input = Fixed::<15>::from_f64(input);
+            let fixed_input = Fixed::from_f64(input, 15);
             let (expected, rem) = fixed_input.recip();
 
             test_op_internal(Op::Recip, &[fixed_input], &[expected, rem], 1);
@@ -404,7 +487,7 @@ mod tests {
     fn test_sqrt() {
         let test_cases = vec![1.0, 4.0, 9.0, 2.0, 0.5, 0.25, 0.0];
         for input in test_cases {
-            let fixed_input = Fixed::<15>::from_f64(input);
+            let fixed_input = Fixed::from_f64(input, 15);
             let (sqrt_out, rem) = fixed_input.sqrt();
 
             test_op_internal(Op::Sqrt, &[fixed_input], &[sqrt_out, rem], 1);
@@ -413,7 +496,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(43);
         for _ in 0..50 {
             let input_val: f64 = rng.gen_range(0.0..100.0);
-            let fixed_input = Fixed::<15>::from_f64(input_val);
+            let fixed_input = Fixed::from_f64(input_val, 15);
             let (sqrt_out, rem) = fixed_input.sqrt();
 
             test_op_internal(Op::Sqrt, &[fixed_input], &[sqrt_out, rem], 1);
